@@ -1,0 +1,4 @@
+{
+  "model": "chatgpt",
+  "messages": [{ "role": "user", "content": "Say hello in one sentence." }]
+}

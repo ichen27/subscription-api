@@ -1,0 +1,16 @@
+{
+  "id": "subscription-api",
+  "name": "Subscription API",
+  "description": "One private endpoint for your ChatGPT and Claude subscriptions.",
+  "icon": "AI",
+  "color": "#e4ebdd",
+  "tags": ["ai", "api", "personal"],
+  "favorite": true,
+  "cwd": "/Volumes/SamsungSSD1/code/subscription-api",
+  "build": [["/opt/homebrew/bin/npm", "ci"], ["/opt/homebrew/bin/npm", "run", "check"]],
+  "command": ["/opt/homebrew/bin/node", "src/main.mjs"],
+  "port": 8932,
+  "healthPath": "/health",
+  "runtime": "native",
+  "envFile": "/Volumes/SamsungSSD1/tools/subscription-api/service.env"
+}

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Subscription API · Launchpad</title>
+  <link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header><a class="back" href="https://apps.chenagent.com">↖ Launchpad</a><span class="private"><span class="dot"></span> PERSONAL WORKSPACE</span></header>
+  <main>
+    <section class="intro"><div><p class="eyebrow">YOUR MODELS, ONE ADDRESS</p><h1>Subscription API<span>.</span></h1><p class="subtitle">Bring ChatGPT and Claude into your own apps.</p></div><button id="refresh" class="secondary">Refresh connections ↻</button></section>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <section id="local-auth" class="panel" hidden><h2>Connect to this gateway</h2><p>Open this app through Launchpad, or enter the gateway key from <code>gateway.key</code> in the service’s data directory.</p><form id="auth-form"><label for="local-key">Gateway key</label><div class="input-row"><input id="local-key" type="password" autocomplete="off" placeholder="sub_…" required><button>Connect</button></div></form></section>
+    <section class="providers" aria-label="Provider connections">
+      <article class="provider panel"><div class="provider-top"><span class="mark openai">◉</span><span id="chatgpt-state" class="badge">Checking…</span></div><h2>ChatGPT</h2><p>Your ChatGPT subscription via Codex.</p><div class="provider-footer"><code>model: "chatgpt"</code><span id="chatgpt-model"></span></div><div id="chatgpt-login" class="login-help" hidden><p>Sign in on the Mac mini, then refresh:</p><code>codex login</code></div></article>
+      <article class="provider panel"><div class="provider-top"><span class="mark anthropic">✳</span><span id="claude-state" class="badge">Checking…</span></div><h2>Claude</h2><p>Your Claude subscription via Claude Code.</p><div class="provider-footer"><code>model: "claude"</code><span id="claude-model"></span></div><div id="claude-login" class="login-help" hidden><p id="claude-login-hint">Sign in on the Mac mini, then refresh:</p><code id="claude-login-command">claude auth login --claudeai</code></div></article>
+    </section>
+    <div class="workspace">
+      <section class="panel endpoint"><p class="eyebrow">CONNECT AN APP</p><h2>One endpoint. Your choice.</h2><p>Use an OpenAI-compatible client with either model alias.</p>
+        <label for="base-url">HTTPS base URL</label><div class="copy-row"><input id="base-url" readonly aria-label="HTTPS base URL"><button id="copy-url" class="secondary" aria-label="Copy HTTPS base URL">Copy</button></div>
+        <p class="help">Protected by Launchpad sign-in. Remote scripts also need a Cloudflare Access session or service token.</p>
+        <label for="local-url">On the Mac mini / through an SSH tunnel</label><div class="copy-row"><input id="local-url" readonly aria-label="Local base URL"><button id="copy-local" class="secondary" aria-label="Copy local base URL">Copy</button></div>
+        <div class="key-row"><div><h3>Gateway API key</h3><p class="help">A separate key for your apps. Provider credentials stay on the mini.</p></div><button id="copy-key" class="secondary">Copy key</button></div>
+        <details><summary>Connect from your MacBook</summary><p>Keep this tunnel running, then use the local URL and gateway key in your app.</p><pre>ssh -N -L 8932:127.0.0.1:8932 mini</pre></details>
+        <details><summary>Example request</summary><pre id="example"></pre></details>
+      </section>
+      <section class="panel playground"><div class="section-heading"><div><p class="eyebrow">TRY IT HERE</p><h2>Test a connection</h2></div><span class="badge neutral">TEXT CHAT</span></div>
+        <form id="chat-form"><label for="provider">Provider</label><select id="provider" name="provider"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option></select><label for="prompt">Message</label><textarea id="prompt" rows="4" maxlength="12000" placeholder="Ask a question or try a prompt…" required></textarea><div class="send-row"><span class="help">Uses your selected provider’s allowance.</span><button id="send">Send message ↗</button><button id="cancel" type="button" class="secondary" hidden>Cancel</button></div></form>
+        <div id="response-wrap" hidden><div class="response-label"><span id="response-provider">RESPONSE</span><span id="elapsed"></span></div><div id="response" role="status" aria-live="polite"></div></div>
+      </section>
+    </div>
+    <footer><span class="dot"></span><p>Personal use · One request per provider at a time · No automatic API-key fallback.<br>Subscription limits and provider billing rules still apply. Text replies are buffered; tools, images, and sampling controls are not supported.</p></footer>
+  </main>
+</body>
+</html>

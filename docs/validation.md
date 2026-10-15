@@ -26,4 +26,17 @@ Initial release, Node.js 22+ on macOS. Codex CLI 0.159.2 and Claude Code 2.1.273
 - `/health`, authenticated `/api/status`, and authenticated `/v1/models` returned 200.
 - The Subscription API card appears in the authenticated launcher and is marked running and favorited.
 
-Further browser, restart, clean-checkout, and GitHub delivery results are recorded below after final verification.
+## Final verification
+
+- Authenticated Chrome dashboard: both providers show Connected. ChatGPT returned `ChatGPT connection verified.`; Claude returned `Claude connection verified.`.
+- Copy-key action succeeded without revealing the key in the page. Copy-endpoint action and expandable curl example were verified. The complete dashboard is saved in `docs/dashboard.png`.
+- Real launcher restart: the gateway key was unchanged and both providers remained connected.
+- After restart, both providers returned HTTP 200 through the SSE Chat Completions route, with content `OK`, a terminal `[DONE]`, and no error event.
+- Fresh GitHub branch clone: `npm ci`, all 18 tests, and syntax checks passed. This validated setup from committed source rather than the development working tree.
+- GitHub Actions passed on the implementation revision. Final artifact-only changes also run through CI before merge.
+- Diff reviewed for auth boundaries, secret isolation, subprocess cleanup, supported-field validation, and provider error handling. Temporary authentication diagnostics were removed.
+- GitHub rejected branch-protection access with HTTP 403: this private repository requires a plan upgrade for that feature. Checks are configured and verified manually before merge; protected-branch enforcement is not claimed.
+
+## Known limits
+
+No mobile-device browser test was performed. The CSS includes narrow-screen layouts, but only the desktop browser was visually verified. HTTPS API access requires the existing Cloudflare Access authentication plus the gateway key; clients without Access support can use an SSH tunnel. Remaining subscription quota and provider-side charges were not measured. CLI upgrades and expiring OAuth credentials require maintenance.

@@ -1,0 +1,7 @@
+{
+  "id": "chatcmpl-example",
+  "object": "chat.completion",
+  "created": 0,
+  "model": "chatgpt",
+  "choices": [{ "index": 0, "message": { "role": "assistant", "content": "Hello! How can I help you today?" }, "finish_reason": "stop" }]
+}

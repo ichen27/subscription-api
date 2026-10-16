@@ -85,11 +85,13 @@ In the dashboard, choose **Provider**, then **Model**. Choose **Custom model ID�
 
 `GET /v1/models` lists the two aliases, suggested model IDs, and each saved default. It is a curated convenience list, not a live entitlement check. Any syntactically valid qualified model ID can be requested. Names allow letters, digits, dots, underscores, hyphens, and an optional `[1m]` suffix. The gateway forwards the chosen name to the corresponding official CLI. Account restrictions, CLI versions, and provider alias/fallback policies still apply; the response’s `model` field echoes the requested route, not an independently verified upstream version. A saved default is not validated by making a billable request; use **Send message** to test access.
 
-Codex uses the selected model’s default reasoning effort. Claude aliases can change version over time; use a full ID when you need to request a particular version. See [OpenAI models](https://learn.chatgpt.com/docs/models) and [Claude model configuration](https://code.claude.com/docs/en/model-config). Some selections, including Claude Fable, may consume usage credits under your plan. The gateway does not enable paid API-key fallback or bypass provider billing settings.
+General API requests use the selected Codex model’s default reasoning effort. The dedicated Slice CI route described below fixes High reasoning. Claude aliases can change version over time; use a full ID when you need to request a particular version. See [OpenAI models](https://learn.chatgpt.com/docs/models) and [Claude model configuration](https://code.claude.com/docs/en/model-config). Some selections, including Claude Fable, may consume usage credits under your plan. The gateway does not enable paid API-key fallback or bypass provider billing settings.
 
 ## GitHub Actions
 
-CI can call this endpoint to analyze text, diffs, or test logs. Builds and tests still run in the CI runner. See the [CI integration guide](docs/github-actions.md) and [example request step](examples/github-actions-step.yml). The example requires a working authenticated network route; a target repository has not yet been connected.
+A separate, disabled-by-default `POST /ci/slice/review` endpoint supports Slice's protected reviewer. It accepts only `claude/claude-opus-5-5`, non-streaming text requests and a dedicated review key; the key cannot access the personal API or dashboard settings. The server requests High reasoning, disables automatic model switching on flagged requests, and retains tool isolation. Claude Code 2.1.280 or newer is required for Opus 5.5; this integration was verified with 2.1.301. See [the scoped connection guide](docs/slice-ci.md). This code alone does not configure Cloudflare or activate GitHub calls.
+
+CI can call this endpoint to analyze text, diffs, or test logs. Builds and tests still run in the CI runner. See the [CI integration guide](docs/github-actions.md) and [example request step](examples/github-actions-step.yml). The example requires a working authenticated network route; live connection status is recorded in [the Slice CI guide](docs/slice-ci.md).
 
 ## Architecture and configuration
 
@@ -110,6 +112,7 @@ Dashboard / API client
 | `PUBLIC_ORIGIN` | `http://127.0.0.1:8932`; exact public origin, no trailing slash |
 | `LAUNCHER_OWNER_EMAIL` | Empty; enables the trusted launcher identity contract only when explicitly configured |
 | `CODEX_BIN`, `CLAUDE_BIN` | `codex`, `claude`; production should use absolute executable paths |
+| `CI_REVIEW_KEY_FILE` | Optional private file for the dedicated Slice CI endpoint; unset disables it |
 | `CLAUDE_OAUTH_TOKEN_FILE` | Optional owner-only file containing a subscription OAuth token from `claude setup-token`; injected only into Claude processes |
 | `CHATGPT_MODEL`, `CLAUDE_MODEL` | `gpt-6.1-sol`, `sonnet`; initial alias defaults, overridden by saved dashboard settings |
 

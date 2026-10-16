@@ -1,5 +1,7 @@
 # GitHub Actions integration
 
+For the Slice reviewer integration, use [the dedicated machine endpoint guide](slice-ci.md). The generic private-tunnel example below remains an alternative for other integrations.
+
 Yes: a CI job can call `POST /v1/chat/completions` with a selected `provider/model-id`. It can summarize a diff, explain a failed test, or evaluate generated text. It cannot ask this text-only gateway to execute repository commands, run tests, edit files, or perform tool calls. Run normal builds/tests in GitHub Actions and provide only the relevant text to the model.
 
 ## Recommended connection for this installation

@@ -28,11 +28,12 @@ const codexDisabledFeatures = [
   'worktrees', 'tool_suggest', 'auth_elicitation', 'daemon_auto_start', 'request_permissions_tool',
 ];
 
-export function providerCommand(provider, config, model = defaultModels(config)[provider]) {
+export function providerCommand(provider, config, model = defaultModels(config)[provider], reasoningEffort) {
   if (provider === 'chatgpt') return {
     command: config.codexBin,
     args: ['exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
       '--sandbox', 'read-only', '--json', '--color', 'never', '--model', model,
+      ...(reasoningEffort === 'high' ? ['-c', 'model_reasoning_effort="high"'] : []),
       ...codexDisabledFeatures.flatMap(feature => ['--disable', feature]),
       '--enable', 'skip_host_skill_discovery',
       '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"',
@@ -123,7 +124,7 @@ export function createProviders(config, run = runProcess) {
     }).finally(() => { statusPending = undefined; });
     return statusPending;
   }
-  async function complete(body, { signal } = {}) {
+  async function complete(body, { signal, reasoningEffort } = {}) {
     const { provider, model } = resolveModel(body.model, config);
     if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
     active.add(provider);
@@ -133,7 +134,7 @@ export function createProviders(config, run = runProcess) {
       if (!current?.connected) throw new ApiError(503, 'sign_in_required', 'Sign in to this provider on the Mac mini, then refresh connection status.');
       if (signal?.aborted) throw new ApiError(499, 'cancelled', 'Request cancelled.');
       directory = await mkdtemp(path.join(config.workDir, 'request-'));
-      const invocation = providerCommand(provider, config, model);
+      const invocation = providerCommand(provider, config, model, reasoningEffort);
       const result = await run(invocation.command, invocation.args, {
         cwd: directory, input: conversationPrompt(body.messages), signal,
         timeoutMs: config.timeoutMs, env: await providerEnvironment(provider, config),

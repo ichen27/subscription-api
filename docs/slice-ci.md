@@ -6,7 +6,7 @@ Target repository: `sliceconsultingsu/slice-launcher`. The requester is its prot
 
 `POST /ci/slice/review` is disabled unless `CI_REVIEW_KEY_FILE` names an owner-only, regular, non-symlink file containing `slice_ci_` followed by 64 lowercase hexadecimal characters. Generate a new random key; do not reuse `gateway.key`. The key is loaded on startup and cannot authenticate to any personal API/dashboard endpoint.
 
-Requests use the usual text `model`/`messages`/optional `stream` shape, but the model must be exactly `claude/claude-opus-5-5` and streaming must be off. Browser Origin headers are rejected. The provider requests High reasoning and disables automatic model switching on flagged requests; arbitrary request fields and model changes are rejected before execution. Existing limits, one concurrent call per provider, cancellation and tool isolation apply. The echoed model field is not upstream version attestation; usage/cost and output-token caps remain unsupported.
+Requests use the usual text `model`/`messages`/optional `stream` shape, but the model must be exactly `claude/claude-opus-5-5` and streaming must be off. Browser Origin headers are rejected. The provider requests High reasoning and disables automatic model switching on flagged requests; arbitrary request fields and model changes are rejected before execution. The authenticated review route accepts at most 200,000 conversation characters within the existing 256,000-byte JSON body limit. The personal API retains its 100,000-character cap. One concurrent call per provider, cancellation and tool isolation remain in force. The echoed model field is not upstream version attestation; usage/cost and output-token caps remain unsupported.
 
 ## Production access
 

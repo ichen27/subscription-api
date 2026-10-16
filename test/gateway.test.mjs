@@ -347,3 +347,16 @@ test('review credential must be private, bounded and not a symlink', async t => 
   await writeFile(file, 'x'.repeat(101));
   await assert.rejects(() => readReviewKey(file));
 });
+
+
+test('only the authenticated review route accepts the bounded larger conversation', async t => {
+  const { url, config, calls } = await fixture(t);
+  config.reviewKey = 'slice_ci_' + 'b'.repeat(64);
+  const reviewHeaders = { ...headers, authorization: 'Bearer ' + config.reviewKey };
+  const body = length => JSON.stringify({ model: 'claude/claude-opus-5-5', messages: [{ role: 'user', content: 'x'.repeat(length) }] });
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(180_000) })).status, 200);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(200_001) })).status, 413);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers, body: body(180_000) })).status, 401);
+  assert.equal((await fetch(url + '/v1/chat/completions', { method: 'POST', headers, body: body(100_001) })).status, 413);
+  assert.equal(calls.length, 1);
+});

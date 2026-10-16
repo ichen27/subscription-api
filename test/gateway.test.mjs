@@ -9,6 +9,7 @@ import { loadConfig } from '../src/config.mjs';
 import { createProviders, validateRequest, providerCommand, providerEnvironment, parseProviderResult } from '../src/providers.mjs';
 import { runProcess, subscriptionEnvironment } from '../src/process.mjs';
 import { ApiError } from '../src/errors.mjs';
+import { createModelSettings, resolveModel, defaultModels } from '../src/models.mjs';
 
 const payload = { model: 'chatgpt', messages: [{ role: 'user', content: 'Hello' }] };
 const key = 'sub_' + 'a'.repeat(64);
@@ -29,13 +30,15 @@ function proxyRequest(url, options = {}) {
 
 async function fixture(t, overrides = {}) {
   const calls = [];
-  const config = { apiKey: key, origin: 'https://example.test', host: 'example.test', ownerEmail: 'owner@example.test', port: 8932, chatgptModel: 'test', claudeModel: 'sonnet' };
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'subscription-http-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = { ...await loadConfig({ APP_DATA_DIR: directory, CHATGPT_MODEL: 'test' }), apiKey: key, origin: 'https://example.test', host: 'example.test', ownerEmail: 'owner@example.test' };
   const providers = { status: async () => [{ id: 'chatgpt', connected: true }], complete: async body => { calls.push(body); return 'Hello back'; }, ...overrides };
   const server = createServer(config, providers);
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const url = 'http://127.0.0.1:' + server.address().port;
   t.after(() => { server.stop(); server.closeAllConnections(); });
-  return { server, url, calls };
+  return { server, url, calls, config };
 }
 
 test('API routes require the gateway key, including through the launcher', async t => {
@@ -50,8 +53,9 @@ test('API routes require the gateway key, including through the launcher', async
 test('authenticated model catalog and both provider routes use OpenAI response shape', async t => {
   const { url, calls } = await fixture(t);
   const catalog = await (await fetch(url + '/v1/models', { headers })).json();
-  assert.deepEqual(catalog.data.map(model => model.id), ['chatgpt', 'claude']);
-  for (const model of ['chatgpt', 'claude']) {
+  const modelIds = catalog.data.map(model => model.id);
+  for (const id of ['chatgpt', 'claude', 'chatgpt/gpt-6.1-sol', 'claude/opus']) assert.ok(modelIds.includes(id));
+  for (const model of ['chatgpt', 'claude', 'chatgpt/gpt-6-luna', 'claude/claude-opus-4-8']) {
     const response = await fetch(url + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify({ ...payload, model }) });
     assert.equal(response.status, 200);
     const body = await response.json();
@@ -60,7 +64,7 @@ test('authenticated model catalog and both provider routes use OpenAI response s
     assert.equal(body.choices[0].message.content, 'Hello back');
     assert.equal(body.choices[0].finish_reason, 'stop');
   }
-  assert.deepEqual(calls.map(call => call.model), ['chatgpt', 'claude']);
+  assert.deepEqual(calls.map(call => call.model), ['chatgpt', 'claude', 'chatgpt/gpt-6-luna', 'claude/claude-opus-4-8']);
 });
 
 test('rejects malformed and unsupported requests before any provider execution', async t => {
@@ -221,8 +225,71 @@ test('one in-flight request per provider; busy state clears after completion', a
   const first = provider.complete(payload);
   await running;
   await assert.rejects(provider.complete(payload), error => error.code === 'provider_busy');
+  await assert.rejects(provider.complete({ ...payload, model: 'chatgpt/gpt-6-luna' }), error => error.code === 'provider_busy');
   release();
   assert.equal(await first, 'done');
+});
+
+test('model defaults persist atomically, serialize saves, and invalid names cannot change them', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'subscription-models-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const settings = await createModelSettings(directory, { chatgpt: 'gpt-6.1-sol', claude: 'sonnet' });
+  await Promise.all([settings.save('chatgpt', 'gpt-6-luna'), settings.save('claude', 'opus')]);
+  assert.deepEqual(settings.defaults(), { chatgpt: 'gpt-6-luna', claude: 'opus' });
+  const restarted = await createModelSettings(directory, { chatgpt: 'old', claude: 'old' });
+  assert.deepEqual(restarted.defaults(), settings.defaults());
+  assert.equal((await stat(path.join(directory, 'models.json'))).mode & 0o777, 0o600);
+  for (const model of ['', '--help', '../auth', 'id\n--tools', 'id;evil', 'id/other', 'x'.repeat(101), 10]) {
+    assert.throws(() => settings.save('claude', model), error => error.code === 'invalid_model');
+  }
+  assert.throws(() => settings.save('__proto__', 'model'), error => error.code === 'unknown_provider');
+  const copy = settings.defaults(); copy.claude = 'changed';
+  assert.equal(settings.defaults().claude, 'opus');
+  await rm(directory, { recursive: true, force: true });
+  await assert.rejects(settings.save('claude', 'haiku'));
+  assert.equal(settings.defaults().claude, 'opus');
+});
+
+test('default mutation requires authentication and same origin, validates body, and updates catalog', async t => {
+  const { url, config } = await fixture(t);
+  const endpoint = url + '/api/models/default';
+  const body = JSON.stringify({ provider: 'claude', model: 'claude-opus-4-8' });
+  assert.equal((await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json', origin: config.origin }, body })).status, 401);
+  assert.equal((await fetch(endpoint, { method: 'POST', headers, body })).status, 403);
+  assert.equal((await fetch(endpoint, { method: 'POST', headers: { ...headers, origin: 'https://evil.test' }, body })).status, 403);
+  const authorized = { ...headers, origin: config.origin };
+  for (const invalid of [null, [], {}, { provider: 'unknown', model: 'test' }, { provider: 'claude', model: '--help' }, { provider: 'claude', model: 'opus', extra: true }]) {
+    assert.equal((await fetch(endpoint, { method: 'POST', headers: authorized, body: JSON.stringify(invalid) })).status, 400);
+  }
+  assert.equal((await fetch(endpoint, { method: 'POST', headers: authorized, body })).status, 200);
+  assert.equal(defaultModels(config).claude, 'claude-opus-4-8');
+  const catalog = await (await fetch(url + '/v1/models', { headers })).json();
+  assert.ok(catalog.data.some(model => model.id === 'claude/claude-opus-4-8'));
+  const status = await (await fetch(url + '/api/status', { headers })).json();
+  assert.equal(status.upstreamModels.claude, 'claude-opus-4-8');
+});
+
+test('qualified models route to the correct provider CLI and do not change defaults', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'subscription-routing-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = await loadConfig({ APP_DATA_DIR: directory });
+  const executed = [];
+  const providers = createProviders(config, async (command, args) => {
+    if (args[0] === 'login') return { code: 0, stdout: 'Logged in using ChatGPT', stderr: '' };
+    if (args[0] === 'auth') return { code: 0, stdout: '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}', stderr: '' };
+    executed.push([command, args[args.indexOf('--model') + 1]]);
+    return { code: 0, stderr: '', stdout: command === 'codex'
+      ? '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}\n{"type":"turn.completed"}'
+      : '{"type":"result","subtype":"success","result":"ok"}' };
+  });
+  for (const model of ['chatgpt/gpt-6-luna', 'claude/claude-opus-4-8', 'chatgpt', 'claude']) {
+    assert.equal(await providers.complete(validateRequest({ ...payload, model })), 'ok');
+  }
+  assert.deepEqual(executed, [['codex', 'gpt-6-luna'], ['claude', 'claude-opus-4-8'], ['codex', 'gpt-6.1-sol'], ['claude', 'sonnet']]);
+  await config.modelSettings.save('claude', 'haiku');
+  assert.deepEqual(resolveModel('claude', config), { provider: 'claude', model: 'haiku' });
+  assert.deepEqual(resolveModel('claude/opus[1m]', config), { provider: 'claude', model: 'opus[1m]' });
+  for (const model of ['claude/', 'unknown/opus', 'claude/--help', 'chatgpt/test\n', 'chatgpt/a/b']) assert.throws(() => validateRequest({ ...payload, model }));
 });
 
 test('process runner sends stdin literally, bounds output, and terminates timeouts', async () => {

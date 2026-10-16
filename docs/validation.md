@@ -40,3 +40,13 @@ Initial release, Node.js 22+ on macOS. Codex CLI 0.159.2 and Claude Code 2.1.273
 ## Known limits
 
 No mobile-device browser test was performed. The CSS includes narrow-screen layouts, but only the desktop browser was visually verified. HTTPS API access requires the existing Cloudflare Access authentication plus the gateway key; clients without Access support can use an SSH tunnel. Remaining subscription quota and provider-side charges were not measured. CLI upgrades and expiring OAuth credentials require maintenance.
+
+## Model selection update — 2026-10-15
+
+- `npm ci`, `npm run check`, and all 21 tests pass. Added coverage for explicit model routing, saved-default authentication/origin checks, concurrent atomic saves, persistence, invalid identifiers, failed-write handling, and concurrency across different models of one provider.
+- Authenticated Chrome: selected `chatgpt/gpt-6-luna` and received `MODEL_PICKER_OK`; entered custom `claude/claude-opus-4-8` and received `CLAUDE_MODEL_PICKER_OK`.
+- Saved Claude’s custom model, restarted the launcher-managed service, reloaded the dashboard, and observed `Saved default (claude-opus-4-8)`. Restored the original defaults (`gpt-6.1-sol`, `sonnet`) after testing.
+- Verified per-request selection updates the displayed curl example without changing the saved default. Updated `docs/dashboard.png` from the deployed page.
+- The Bash request block in `examples/github-actions-step.yml` passes `bash -n` and ran successfully against the local gateway with `chatgpt/gpt-6-luna`. This verifies the request step, not GitHub networking.
+- Inspected the launcher auth implementation: it requires a signed JWT with the configured owner email. A Cloudflare service token alone is insufficient. Updated the deployment and CI guidance accordingly; no launcher source or Access policy changes were made.
+- No target GitHub repository, CI job purpose, machine network credentials, or live GitHub-to-gateway call is configured for this integration. The YAML artifact is explicitly a step fragment with a network prerequisite.

@@ -1,0 +1,33 @@
+# Step fragment: first provision a private network + restricted SSH tunnel.
+# See docs/github-actions.md. Do not use this with untrusted fork code.
+- name: Check subscription endpoint
+  timeout-minutes: 3
+  env:
+    API_BASE_URL: ${{ vars.SUBSCRIPTION_API_BASE_URL }}
+    API_MODEL: ${{ vars.SUBSCRIPTION_API_MODEL }}
+    GATEWAY_KEY: ${{ secrets.SUBSCRIPTION_API_KEY }}
+  shell: bash
+  run: |
+    set -euo pipefail
+    : "${API_BASE_URL:?Configure SUBSCRIPTION_API_BASE_URL}"
+    : "${API_MODEL:?Configure SUBSCRIPTION_API_MODEL}"
+    : "${GATEWAY_KEY:?Configure SUBSCRIPTION_API_KEY}"
+    request_file=$(mktemp)
+    response_file=$(mktemp)
+    trap 'rm -f "$request_file" "$response_file"' EXIT
+    jq -n --arg model "$API_MODEL" \
+      '{model: $model, messages: [{role: "user", content: "Reply with exactly CI_OK"}]}' \
+      > "$request_file"
+    status=$(curl --silent --show-error --connect-timeout 10 --max-time 110 \
+      --output "$response_file" --write-out '%{http_code}' \
+      "${API_BASE_URL%/}/chat/completions" \
+      -H "Authorization: Bearer $GATEWAY_KEY" \
+      -H 'Content-Type: application/json' \
+      --data-binary "@$request_file")
+    if [[ "$status" != 200 ]]; then
+      echo "Subscription endpoint returned HTTP $status" >&2
+      exit 1
+    fi
+    jq -e '.object == "chat.completion" and (.choices[0].message.content | type == "string" and length > 0)' \
+      "$response_file" >/dev/null
+    echo 'Subscription endpoint responded successfully.' >> "$GITHUB_STEP_SUMMARY"

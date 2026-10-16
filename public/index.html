@@ -16,16 +16,22 @@
       <article class="provider panel"><div class="provider-top"><span class="mark anthropic">✳</span><span id="claude-state" class="badge">Checking…</span></div><h2>Claude</h2><p>Your Claude subscription via Claude Code.</p><div class="provider-footer"><code>model: "claude"</code><span id="claude-model"></span></div><div id="claude-login" class="login-help" hidden><p id="claude-login-hint">Sign in on the Mac mini, then refresh:</p><code id="claude-login-command">claude auth login --claudeai</code></div></article>
     </section>
     <div class="workspace">
-      <section class="panel endpoint"><p class="eyebrow">CONNECT AN APP</p><h2>One endpoint. Your choice.</h2><p>Use an OpenAI-compatible client with either model alias.</p>
+      <section class="panel endpoint"><p class="eyebrow">CONNECT AN APP</p><h2>One endpoint. Your choice.</h2><p>Use a saved default or choose a specific model in each request.</p>
         <label for="base-url">HTTPS base URL</label><div class="copy-row"><input id="base-url" readonly aria-label="HTTPS base URL"><button id="copy-url" class="secondary" aria-label="Copy HTTPS base URL">Copy</button></div>
-        <p class="help">Protected by Launchpad sign-in. Remote scripts also need a Cloudflare Access session or service token.</p>
+        <p class="help">Protected by Launchpad sign-in. Use the SSH tunnel for scripts. CI needs a dedicated authenticated network route.</p>
         <label for="local-url">On the Mac mini / through an SSH tunnel</label><div class="copy-row"><input id="local-url" readonly aria-label="Local base URL"><button id="copy-local" class="secondary" aria-label="Copy local base URL">Copy</button></div>
         <div class="key-row"><div><h3>Gateway API key</h3><p class="help">A separate key for your apps. Provider credentials stay on the mini.</p></div><button id="copy-key" class="secondary">Copy key</button></div>
         <details><summary>Connect from your MacBook</summary><p>Keep this tunnel running, then use the local URL and gateway key in your app.</p><pre>ssh -N -L 8932:127.0.0.1:8932 mini</pre></details>
         <details><summary>Example request</summary><pre id="example"></pre></details>
       </section>
       <section class="panel playground"><div class="section-heading"><div><p class="eyebrow">TRY IT HERE</p><h2>Test a connection</h2></div><span class="badge neutral">TEXT CHAT</span></div>
-        <form id="chat-form"><label for="provider">Provider</label><select id="provider" name="provider"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option></select><label for="prompt">Message</label><textarea id="prompt" rows="4" maxlength="12000" placeholder="Ask a question or try a prompt…" required></textarea><div class="send-row"><span class="help">Uses your selected provider’s allowance.</span><button id="send">Send message ↗</button><button id="cancel" type="button" class="secondary" hidden>Cancel</button></div></form>
+        <form id="chat-form"><label for="provider">Provider</label><select id="provider" name="provider"><option value="chatgpt">ChatGPT</option><option value="claude">Claude</option></select>
+          <label for="model">Model</label><select id="model" name="model" disabled><option>Loading models…</option></select>
+          <div id="custom-model-wrap" hidden><label for="custom-model">Exact model ID</label><input id="custom-model" maxlength="100" placeholder="e.g. gpt-6.1-sol" autocomplete="off" spellcheck="false"></div>
+          <p class="help">Suggestions depend on account access and CLI version. Custom IDs are supported. Provider credit rules apply; Fable may use paid usage credits.</p>
+          <div class="model-default-row"><code id="selected-model"></code><button id="save-model" type="button" class="secondary" disabled>Save as default</button></div>
+          <p class="help">Saving changes the selected provider’s default for all apps using its short alias.</p>
+          <label for="prompt">Message</label><textarea id="prompt" rows="4" maxlength="12000" placeholder="Ask a question or try a prompt…" required></textarea><div class="send-row"><span class="help">Uses your selected provider’s allowance.</span><button id="send" disabled>Send message ↗</button><button id="cancel" type="button" class="secondary" hidden>Cancel</button></div></form>
         <div id="response-wrap" hidden><div class="response-label"><span id="response-provider">RESPONSE</span><span id="elapsed"></span></div><div id="response" role="status" aria-live="polite"></div></div>
       </section>
     </div>

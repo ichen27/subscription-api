@@ -2,11 +2,7 @@ import { mkdtemp, rm, readFile, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { runProcess, subscriptionEnvironment } from './process.mjs';
 import { ApiError } from './errors.mjs';
-
-export const models = [
-  { id: 'chatgpt', object: 'model', created: 0, owned_by: 'openai', label: 'ChatGPT' },
-  { id: 'claude', object: 'model', created: 0, owned_by: 'anthropic', label: 'Claude' },
-];
+import { providerIds, defaultModels, resolveModel } from './models.mjs';
 
 export async function providerEnvironment(provider, config) {
   const env = subscriptionEnvironment();
@@ -32,24 +28,24 @@ const codexDisabledFeatures = [
   'worktrees', 'tool_suggest', 'auth_elicitation', 'daemon_auto_start', 'request_permissions_tool',
 ];
 
-export function providerCommand(provider, config) {
+export function providerCommand(provider, config, model = defaultModels(config)[provider]) {
   if (provider === 'chatgpt') return {
     command: config.codexBin,
     args: ['exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
-      '--sandbox', 'read-only', '--json', '--color', 'never', '--model', config.chatgptModel,
+      '--sandbox', 'read-only', '--json', '--color', 'never', '--model', model,
       ...codexDisabledFeatures.flatMap(feature => ['--disable', feature]),
       '--enable', 'skip_host_skill_discovery',
       '-c', 'forced_login_method="chatgpt"', '-c', 'model_provider="openai"',
       '-c', 'project_doc_max_bytes=0', '-c', 'web_search="disabled"',
       '-c', 'approval_policy="never"', '-c', 'history.persistence="none"',
-      '-c', 'hide_agent_reasoning=true', '-c', 'model_reasoning_effort="low"', '-'],
+      '-c', 'hide_agent_reasoning=true', '-'],
   };
   return {
     command: config.claudeBin,
     args: ['--print', '--safe-mode', '--restricted', '--tools', '', '--strict-mcp-config',
       '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
       '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
-      '--output-format', 'json', '--model', config.claudeModel,
+      '--output-format', 'json', '--model', model,
       '--system-prompt', 'You are a helpful text assistant. Respond to the supplied conversation. You have no tools.'],
   };
 }
@@ -58,7 +54,7 @@ export function validateRequest(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, 'invalid_request', 'Send a JSON object.');
   const unsupported = Object.keys(body).filter(key => !['model', 'messages', 'stream'].includes(key));
   if (unsupported.length) throw new ApiError(400, 'unsupported_parameter', 'Supported fields are model, messages, and stream. Tool calls, sampling controls, and token limits are not supported.');
-  if (!models.some(model => model.id === body.model)) throw new ApiError(400, 'unknown_model', 'Choose model "chatgpt" or "claude".');
+  resolveModel(body.model, {});
   if (body.stream !== undefined && typeof body.stream !== 'boolean') throw new ApiError(400, 'invalid_stream', 'stream must be a boolean.');
   if (!Array.isArray(body.messages) || !body.messages.length || body.messages.length > 100) throw new ApiError(400, 'invalid_messages', 'Provide between 1 and 100 text messages.');
   let total = 0;
@@ -122,13 +118,13 @@ export function createProviders(config, run = runProcess) {
   }
   async function status() {
     if (statusCache && Date.now() - statusAt < 5_000) return statusCache;
-    if (!statusPending) statusPending = Promise.all(models.map(model => inspect(model.id))).then(value => {
+    if (!statusPending) statusPending = Promise.all(providerIds.map(inspect)).then(value => {
       statusCache = value; statusAt = Date.now(); return value;
     }).finally(() => { statusPending = undefined; });
     return statusPending;
   }
   async function complete(body, { signal } = {}) {
-    const provider = body.model;
+    const { provider, model } = resolveModel(body.model, config);
     if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
     active.add(provider);
     let directory;
@@ -137,7 +133,7 @@ export function createProviders(config, run = runProcess) {
       if (!current?.connected) throw new ApiError(503, 'sign_in_required', 'Sign in to this provider on the Mac mini, then refresh connection status.');
       if (signal?.aborted) throw new ApiError(499, 'cancelled', 'Request cancelled.');
       directory = await mkdtemp(path.join(config.workDir, 'request-'));
-      const invocation = providerCommand(provider, config);
+      const invocation = providerCommand(provider, config, model);
       const result = await run(invocation.command, invocation.args, {
         cwd: directory, input: conversationPrompt(body.messages), signal,
         timeoutMs: config.timeoutMs, env: await providerEnvironment(provider, config),

@@ -74,7 +74,7 @@ export function createServer(config, providers) {
         if (!bearer(req, config.reviewKey)) throw new ApiError(401, 'unauthorized', 'A review credential is required.');
         if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST.');
         if (req.headers.origin) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
-        const body = validateRequest(await readBody(req));
+        const body = validateRequest(await readBody(req), 200_000);
         if (body.model !== 'claude/claude-opus-5-5' || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
         const text = await providers.complete(body, { signal: controller.signal, reasoningEffort: 'high' });
         if (!res.destroyed) json(res, 200, apiResult(body.model, text, 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));

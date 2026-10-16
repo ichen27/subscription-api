@@ -52,7 +52,7 @@ export function providerCommand(provider, config, model = defaultModels(config)[
   };
 }
 
-export function validateRequest(body) {
+export function validateRequest(body, maxCharacters = 100_000) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, 'invalid_request', 'Send a JSON object.');
   const unsupported = Object.keys(body).filter(key => !['model', 'messages', 'stream'].includes(key));
   if (unsupported.length) throw new ApiError(400, 'unsupported_parameter', 'Supported fields are model, messages, and stream. Tool calls, sampling controls, and token limits are not supported.');
@@ -67,7 +67,7 @@ export function validateRequest(body) {
     }
     total += message.content.length;
   }
-  if (total > 100_000) throw new ApiError(413, 'prompt_too_large', 'Keep the conversation under 100,000 characters.');
+  if (total > maxCharacters) throw new ApiError(413, 'prompt_too_large', 'Conversation exceeds the character limit.');
   if (body.messages.at(-1).role !== 'user' || !body.messages.at(-1).content.trim()) throw new ApiError(400, 'invalid_messages', 'End the conversation with a nonempty user message.');
   return body;
 }

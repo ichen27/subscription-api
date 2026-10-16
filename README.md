@@ -89,7 +89,7 @@ General API requests use the selected Codex model’s default reasoning effort. 
 
 ## GitHub Actions
 
-A separate, disabled-by-default `POST /ci/slice/review` endpoint supports Slice's protected reviewer. It accepts only `chatgpt/gpt-6-astra`, non-streaming text requests and a dedicated review key; the key cannot access the personal API or dashboard settings. The server requests High reasoning and retains tool isolation. See [the scoped connection guide](docs/slice-ci.md). This code alone does not configure Cloudflare or activate GitHub calls.
+A separate, disabled-by-default `POST /ci/slice/review` endpoint supports Slice's protected reviewer. It accepts only `claude/claude-opus-5-5`, non-streaming text requests and a dedicated review key; the key cannot access the personal API or dashboard settings. The server requests High reasoning, disables automatic model switching on flagged requests, and retains tool isolation. Claude Code 2.1.280 or newer is required for Opus 5.5; this integration was verified with 2.1.301. See [the scoped connection guide](docs/slice-ci.md). This code alone does not configure Cloudflare or activate GitHub calls.
 
 CI can call this endpoint to analyze text, diffs, or test logs. Builds and tests still run in the CI runner. See the [CI integration guide](docs/github-actions.md) and [example request step](examples/github-actions-step.yml). The example requires a working authenticated network route; live connection status is recorded in [the Slice CI guide](docs/slice-ci.md).
 

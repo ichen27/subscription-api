@@ -305,14 +305,14 @@ test('dedicated CI key allows only fixed-model review and never personal API acc
   const { url, config } = await fixture(t, { complete: async (body, options) => { seen.push({ body, options }); return '{"status":"completed","findings":[]}'; } });
   const ciKey = 'slice_ci_' + 'b'.repeat(64);
   const ciHeaders = { 'content-type': 'application/json', authorization: 'Bearer ' + ciKey };
-  const body = { ...payload, model: 'chatgpt/gpt-6-astra' };
+  const body = { ...payload, model: 'claude/claude-opus-5-5' };
   assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: ciHeaders, body: JSON.stringify(body) })).status, 404);
   config.reviewKey = ciKey;
   assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers, body: JSON.stringify(body) })).status, 401);
   for (const path of ['/v1/models', '/v1/chat/completions', '/api/key', '/api/models/default']) {
     assert.equal((await fetch(url + path, { method: 'POST', headers: ciHeaders, body: '{}' })).status, 401);
   }
-  for (const bad of [{ ...body, model: 'claude/opus' }, { ...body, stream: true }, { ...body, tools: [] }]) {
+  for (const bad of [{ ...body, model: 'claude/opus' }, { ...body, model: 'chatgpt/gpt-6-astra' }, { ...body, stream: true }, { ...body, tools: [] }]) {
     assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: ciHeaders, body: JSON.stringify(bad) })).status, 400);
   }
   assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: { ...ciHeaders, origin: 'https://example.test' }, body: JSON.stringify(body) })).status, 403);
@@ -322,9 +322,12 @@ test('dedicated CI key allows only fixed-model review and never personal API acc
   assert.equal((await result.json()).model, body.model);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].options.reasoningEffort, 'high');
-  const args = providerCommand('chatgpt', {}, 'gpt-6-astra', 'high').args;
-  assert.ok(args.includes('model_reasoning_effort="high"'));
-  assert.ok(args.includes('--ignore-user-config'));
+  const args = providerCommand('claude', {}, 'claude-opus-5-5', 'high').args;
+  assert.equal(args[args.indexOf('--effort') + 1], 'high');
+  assert.equal(JSON.parse(args[args.indexOf('--settings') + 1]).switchModelsOnFlag, false);
+  assert.ok(args.includes('--safe-mode'));
+  assert.ok(args.includes('--restricted'));
+  assert.ok(!args.includes('--fallback-model'));
 });
 
 test('review credential must be private, bounded and not a symlink', async t => {

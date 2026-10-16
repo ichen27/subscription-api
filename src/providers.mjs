@@ -47,6 +47,7 @@ export function providerCommand(provider, config, model = defaultModels(config)[
       '--disable-slash-commands', '--no-chrome', '--no-session-persistence',
       '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
       '--output-format', 'json', '--model', model,
+      ...(reasoningEffort === 'high' ? ['--effort', 'high', '--settings', JSON.stringify({ switchModelsOnFlag: false })] : []),
       '--system-prompt', 'You are a helpful text assistant. Respond to the supplied conversation. You have no tools.'],
   };
 }

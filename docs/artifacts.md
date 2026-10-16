@@ -2,8 +2,9 @@
 
 | Artifact | Purpose | Format / how to use |
 | --- | --- | --- |
-| [Dashboard](dashboard.png) | Verified deployed UI, initial release | PNG; open in any image viewer |
+| [Dashboard](dashboard.png) | Verified deployed UI with model selection | PNG; open in any image viewer |
 | [Validation](validation.md) | Automated and live verification results | Markdown |
+| [CI guide](github-actions.md) and [request step](../examples/github-actions-step.yml) | CI setup requirements and copyable request step; network setup pending | Markdown / YAML |
 | [Request](../examples/request.json) | Harmless example input | JSON; send to `/v1/chat/completions` |
 | [Response](../examples/response.json) | Representative output schema | JSON; sample, not a promised model response |
 | [Source](../src/) and [UI](../public/) | Editable implementation | JavaScript, HTML, CSS; Node 22+ |

@@ -4,7 +4,7 @@
 
 Run as a user who has already signed into both official CLIs. Set an absolute persistent `APP_DATA_DIR`, absolute CLI executable paths, `PORT`, and `PUBLIC_ORIGIN`. Keep the listener on loopback. The process exits its child requests on cancellation/shutdown, so use a service manager with a shutdown grace period of at least three seconds.
 
-Use an SSH tunnel for API clients that cannot supply Cloudflare Access credentials. The HTTPS endpoint behind Access requires an authenticated Access cookie or an explicitly configured Access service-token policy **in addition to** the gateway key. The initial deployment does not create a new Cloudflare service token or widen the existing owner-only policy.
+Use an SSH tunnel for API clients that cannot supply Cloudflare Access credentials. The HTTPS endpoint behind Access and the launcher requires an authenticated owner session **in addition to** the gateway key. The launcher currently requires an owner-email JWT; simply adding a Cloudflare service token is insufficient. Machine access requires a deliberately scoped route or a private SSH tunnel. The initial deployment does not create a new Cloudflare service token or widen the existing owner-only policy.
 
 ## Personal launcher integration
 
@@ -50,3 +50,7 @@ The credential has a provider-controlled lifetime. When it expires or is revoked
 - Shutdown leaves stale work directories after an abrupt host crash: after confirming the service is stopped and has no active provider children, remove only its empty `work/request-*` directories.
 
 This app neither starts nor changes the historical llm-router or claude-router messaging services.
+
+## Saved model defaults
+
+The dashboard saves defaults in `APP_DATA_DIR/models.json` (owner-only, atomic replacement). These saved values take precedence over `CHATGPT_MODEL` and `CLAUDE_MODEL`, which seed a fresh installation. Changing a default affects later alias requests; explicit `provider/model-id` requests and already-started requests keep their selection. Back up this small settings file with the gateway key. Invalid settings fail startup instead of silently choosing another model.

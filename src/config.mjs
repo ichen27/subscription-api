@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
+import { createModelSettings } from './models.mjs';
 
 export async function loadConfig(env = process.env) {
   if (env.HOST && env.HOST !== '127.0.0.1') throw new Error('HOST must be 127.0.0.1; use an authenticated proxy or SSH tunnel.');
@@ -25,6 +26,7 @@ export async function loadConfig(env = process.env) {
     codexBin: env.CODEX_BIN || 'codex', claudeBin: env.CLAUDE_BIN || 'claude',
     claudeTokenFile: env.CLAUDE_OAUTH_TOKEN_FILE || '',
     chatgptModel: env.CHATGPT_MODEL || 'gpt-6.1-sol', claudeModel: env.CLAUDE_MODEL || 'sonnet',
+    modelSettings: await createModelSettings(dataDir, { chatgpt: env.CHATGPT_MODEL || 'gpt-6.1-sol', claude: env.CLAUDE_MODEL || 'sonnet' }),
     timeoutMs: 90_000,
   };
 }

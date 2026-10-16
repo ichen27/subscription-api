@@ -1,6 +1,6 @@
 # Subscription API
 
-A private, single-user HTTP gateway for ChatGPT and Claude subscriptions, with a small dashboard for connection status, endpoint settings, and test prompts. Select `chatgpt` or `claude` through one OpenAI-compatible **text Chat Completions** endpoint.
+A private, single-user HTTP gateway for ChatGPT and Claude subscriptions, with a small dashboard for connection status, endpoint settings, and test prompts. Select a specific model or a saved `chatgpt` / `claude` default through one OpenAI-compatible **text Chat Completions** endpoint.
 
 The gateway invokes the official Codex and Claude Code CLIs using their existing subscription sign-ins. It does not scrape websites, extract browser cookies, or silently fall back to provider API keys. It is not affiliated with OpenAI or Anthropic.
 
@@ -59,7 +59,7 @@ curl --fail-with-body http://127.0.0.1:8932/v1/chat/completions \
   -d '{"model":"chatgpt","messages":[{"role":"user","content":"Say hello in one sentence."}]}'
 ```
 
-Change `model` to `claude` to use Claude. Add `"stream":true` for buffered SSE. Keep API keys in environment variables or a credential store. See [sample input and output](examples/) for the exact response shape.
+Change `model` to `claude` to use Claude’s saved default, or select a specific model with `chatgpt/gpt-6.1-sol`, `chatgpt/gpt-6-luna`, `claude/opus`, or `claude/claude-opus-4-8`. Add `"stream":true` for buffered SSE. Keep API keys in environment variables or a credential store. See [sample input and output](examples/) for the exact response shape.
 
 In a compatible client, set:
 
@@ -67,7 +67,7 @@ In a compatible client, set:
 | --- | --- |
 | Base URL | `http://127.0.0.1:8932/v1` |
 | API key | Contents of `gateway.key` |
-| Model | `chatgpt` or `claude` |
+| Model | `chatgpt`, `claude`, or `provider/model-id` |
 
 Clients that always send extra fields, require tool calling, or require the Responses API will need adaptation. This project deliberately does not claim complete OpenAI compatibility.
 
@@ -77,7 +77,19 @@ For another computer, forward a local port to the service host:
 ssh -N -L 8932:127.0.0.1:8932 YOUR_SERVER
 ```
 
-Then use the same local base URL and key on that computer. A public HTTPS URL behind Cloudflare Access requires **both** Access authentication and the gateway bearer key. An API key alone does not bypass the Access login. See [deployment](docs/deployment.md).
+Then use the same local base URL and key on that computer. The public HTTPS URL requires **both** an authenticated owner session and the gateway bearer key. An API key or Cloudflare service token alone does not pass the launcher’s owner-identity check. See [deployment](docs/deployment.md).
+
+## Choosing models
+
+In the dashboard, choose **Provider**, then **Model**. Choose **Custom model ID…** to enter a name absent from the suggestions. **Save as default** changes the selected provider’s short alias across all clients and persists through restarts; merely sending a request does not change the default.
+
+`GET /v1/models` lists the two aliases, suggested model IDs, and each saved default. It is a curated convenience list, not a live entitlement check. Any syntactically valid qualified model ID can be requested. Names allow letters, digits, dots, underscores, hyphens, and an optional `[1m]` suffix. The gateway forwards the chosen name to the corresponding official CLI. Account restrictions, CLI versions, and provider alias/fallback policies still apply; the response’s `model` field echoes the requested route, not an independently verified upstream version. A saved default is not validated by making a billable request; use **Send message** to test access.
+
+Codex uses the selected model’s default reasoning effort. Claude aliases can change version over time; use a full ID when you need to request a particular version. See [OpenAI models](https://learn.chatgpt.com/docs/models) and [Claude model configuration](https://code.claude.com/docs/en/model-config). Some selections, including Claude Fable, may consume usage credits under your plan. The gateway does not enable paid API-key fallback or bypass provider billing settings.
+
+## GitHub Actions
+
+CI can call this endpoint to analyze text, diffs, or test logs. Builds and tests still run in the CI runner. See the [CI integration guide](docs/github-actions.md) and [example request step](examples/github-actions-step.yml). The example requires a working authenticated network route; a target repository has not yet been connected.
 
 ## Architecture and configuration
 
@@ -88,7 +100,7 @@ Dashboard / API client
   → Codex or Claude Code (isolated request directory, tools disabled)
 ```
 
-`src/server.mjs` owns HTTP and the trusted launcher contract. `src/providers.mjs` owns CLI arguments, input validation, and response parsing. `src/process.mjs` owns bounded subprocesses and an allowlisted environment. `public/` contains the dashboard; no framework or runtime npm dependencies are required.
+`src/server.mjs` owns HTTP and the trusted launcher contract. `src/models.mjs` owns model routing and persistent defaults. `src/providers.mjs` owns CLI arguments, input validation, and response parsing. `src/process.mjs` owns bounded subprocesses and an allowlisted environment. `public/` contains the dashboard; no framework or runtime npm dependencies are required.
 
 | Environment variable | Default / purpose |
 | --- | --- |
@@ -99,7 +111,7 @@ Dashboard / API client
 | `LAUNCHER_OWNER_EMAIL` | Empty; enables the trusted launcher identity contract only when explicitly configured |
 | `CODEX_BIN`, `CLAUDE_BIN` | `codex`, `claude`; production should use absolute executable paths |
 | `CLAUDE_OAUTH_TOKEN_FILE` | Optional owner-only file containing a subscription OAuth token from `claude setup-token`; injected only into Claude processes |
-| `CHATGPT_MODEL`, `CLAUDE_MODEL` | `gpt-6.1-sol`, `sonnet`; upstream models behind the two aliases |
+| `CHATGPT_MODEL`, `CLAUDE_MODEL` | `gpt-6.1-sol`, `sonnet`; initial alias defaults, overridden by saved dashboard settings |
 
 Inherited environment variables containing API keys, alternative provider URLs, OAuth overrides, and Node preload options are excluded from provider processes. The only optional credential injection is the explicitly configured Claude subscription OAuth file, which must be an owner-only regular file owned by the service user. Codex is forced to ChatGPT authentication and ignores user configuration. Claude runs in safe/restricted mode with an empty tool allowlist. CLI upgrades may change flags, authentication, or output formats; rerun a live smoke test after upgrading.
 

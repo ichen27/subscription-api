@@ -2,7 +2,8 @@ import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { ApiError, publicError } from './errors.mjs';
-import { models, validateRequest } from './providers.mjs';
+import { validateRequest } from './providers.mjs';
+import { modelCatalog, defaultModels } from './models.mjs';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -72,14 +73,20 @@ export function createServer(config, providers) {
       if (url.pathname.startsWith('/v1/') ? !isBearer : !isBearer && !isOwner) throw new ApiError(401, 'unauthorized', 'Use your gateway API key or open this app from Launchpad.');
       if (req.headers.origin && req.headers.origin !== config.origin) throw new ApiError(403, 'origin_rejected', 'Request origin is not allowed.');
       if (req.method === 'POST' && url.pathname.startsWith('/api/') && req.headers.origin !== config.origin) throw new ApiError(403, 'origin_required', 'Open this action from the app.');
-      if (url.pathname === '/v1/models' && req.method === 'GET') return json(res, 200, { object: 'list', data: models.map(({ label, ...model }) => model) });
+      if (url.pathname === '/v1/models' && req.method === 'GET') return json(res, 200, { object: 'list', data: modelCatalog(config).map(({ label, provider, ...model }) => model) });
       if (url.pathname === '/api/status' && req.method === 'GET') return json(res, 200, {
-        providers: await providers.status(), models, baseUrl: config.origin + '/v1',
+        providers: await providers.status(), models: modelCatalog(config), baseUrl: config.origin + '/v1',
         localBaseUrl: `http://127.0.0.1:${config.port}/v1`,
-        upstreamModels: { chatgpt: config.chatgptModel, claude: config.claudeModel },
+        upstreamModels: defaultModels(config),
         loginCommands: { chatgpt: 'codex login', claude: config.claudeTokenFile ? 'claude setup-token' : 'claude auth login --claudeai' },
         claudeAutomation: Boolean(config.claudeTokenFile),
       });
+      if (url.pathname === '/api/models/default' && req.method === 'POST') {
+        const body = await readBody(req);
+        if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).some(key => !['provider', 'model'].includes(key))) throw new ApiError(400, 'invalid_request', 'Send provider and model only.');
+        const upstreamModels = await config.modelSettings.save(body.provider, body.model);
+        return json(res, 200, { upstreamModels, models: modelCatalog(config) });
+      }
       if (url.pathname === '/api/key' && req.method === 'POST') {
         await readBody(req);
         return json(res, 200, { key: config.apiKey });

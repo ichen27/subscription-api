@@ -6,7 +6,16 @@ Target repository: `sliceconsultingsu/slice-launcher`. The requester is its prot
 
 `POST /ci/slice/review` is disabled unless `CI_REVIEW_KEY_FILE` names an owner-only, regular, non-symlink file containing `slice_ci_` followed by 64 lowercase hexadecimal characters. Generate a new random key; do not reuse `gateway.key`. The key is loaded on startup and cannot authenticate to any personal API/dashboard endpoint.
 
-Requests use the usual text `model`/`messages`/optional `stream` shape, but the model must be exactly `claude/claude-opus-5-5` and streaming must be off. Browser Origin headers are rejected. The provider requests High reasoning and disables automatic model switching on flagged requests; arbitrary request fields and model changes are rejected before execution. The authenticated review route accepts at most 400,000 conversation characters within a 640,000-byte JSON body limit (kept well under a 200K-token context), and allows 300 seconds of inference. The personal API retains its 100,000-character, 256 KB and 90-second limits. A long review holds the single Claude slot for up to five minutes, so personal Claude requests may report busy meanwhile. One concurrent call per provider, cancellation and tool isolation remain in force. The echoed model field is not upstream version attestation; usage/cost and output-token caps remain unsupported.
+Requests use the usual text `model`/`messages`/optional `stream` shape, but the model must be exactly `claude/claude-opus-5-5` and streaming must be off. Browser Origin headers are rejected. The provider requests High reasoning and disables automatic model switching on flagged requests; arbitrary request fields and model changes are rejected before execution. The authenticated review route accepts at most 400,000 conversation characters within a 640,000-byte JSON body limit (kept well under a 200K-token context), and allows 300 seconds of inference. The personal API retains its 100,000-character, 256 KB and 90-second limits. A long review holds the single Claude slot for up to five minutes, so personal Claude requests may report busy meanwhile.
+
+### Review jobs
+
+Cloudflare ends a proxied request that gets no response within about two minutes (its default Proxy Read Timeout is 125 seconds), so long reviews run as jobs:
+
+1. `POST /ci/slice/review` with `Prefer: respond-async` validates the request and returns `202` with `{ id, status: "queued", position }` and a `Location` header.
+2. `GET /ci/slice/review?job=<id>` returns `queued` (with `position`), `running`, `completed` (with `result`, the usual chat-completion object) or `failed` (with a safe `error` of `status`, `code` and `message`).
+
+Both requests need the review key and are refused with a browser `Origin`. Reviews run one at a time; up to four can wait, and a fifth gets `429 queue_full`. Finished results stay available for 15 minutes (at most 50 are kept). A job that nobody checks on for two minutes is cancelled, for example when a newer push cancels the CI run, so it stops using the allowance; it then reports `abandoned`. Jobs live in memory, so a gateway restart fails them (`shutting_down`, or `job_not_found` afterwards). Without the `Prefer` header the route still waits for the review, which only suits reviews that finish before the proxy timeout. One concurrent call per provider, cancellation and tool isolation remain in force. The echoed model field is not upstream version attestation; usage/cost and output-token caps remain unsupported.
 
 ## Production access
 

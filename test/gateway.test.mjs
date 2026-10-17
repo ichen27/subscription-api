@@ -367,6 +367,39 @@ test('review credential must be private, bounded and not a symlink', async t => 
 });
 
 
+test('review jobs: submit returns at once, and only the review key can check results', async t => {
+  let release;
+  const { url, config, calls } = await fixture(t, { complete: async (body, options) => {
+    calls.push({ body, options });
+    await new Promise(resolve => { release = resolve; });
+    return '{"status":"completed","findings":[]}';
+  } });
+  config.reviewKey = 'slice_ci_' + 'c'.repeat(64);
+  const reviewHeaders = { 'content-type': 'application/json', authorization: 'Bearer ' + config.reviewKey };
+  const body = JSON.stringify({ model: 'claude/claude-opus-5-5', messages: [{ role: 'user', content: 'review this' }] });
+  const submitted = await fetch(url + '/ci/slice/review', { method: 'POST', headers: { ...reviewHeaders, prefer: 'respond-async' }, body });
+  assert.equal(submitted.status, 202);
+  const job = await submitted.json();
+  assert.equal(submitted.headers.get('location'), '/ci/slice/review?job=' + job.id);
+  assert.equal(job.status, 'queued');
+  const check = extra => fetch(url + '/ci/slice/review?job=' + job.id, { headers: { ...reviewHeaders, ...extra } });
+  assert.equal((await check({ authorization: 'Bearer ' + key })).status, 401);
+  assert.equal((await check({ authorization: undefined })).status, 401);
+  assert.equal((await check({ origin: 'https://example.test' })).status, 403);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await (await check()).json()).status, 'running');
+  assert.equal(calls[0].options.timeoutMs, 300_000);
+  assert.equal(calls[0].options.reasoningEffort, 'high');
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  const done = await (await check()).json();
+  assert.equal(done.status, 'completed');
+  assert.equal(done.result.model, 'claude/claude-opus-5-5');
+  assert.equal(done.result.choices[0].message.content, '{"status":"completed","findings":[]}');
+  assert.equal((await fetch(url + '/ci/slice/review?job=nope', { headers: reviewHeaders })).status, 400);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'PUT', headers: reviewHeaders, body })).status, 405);
+});
+
 test('only the authenticated review route accepts the bounded larger conversation', async t => {
   const { url, config, calls } = await fixture(t);
   config.reviewKey = 'slice_ci_' + 'b'.repeat(64);

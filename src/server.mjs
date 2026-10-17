@@ -27,14 +27,17 @@ function launcherOwner(req, config) {
     && req.headers['x-forwarded-proto'] === 'https'
     && req.headers['cf-access-authenticated-user-email'] === config.ownerEmail;
 }
-async function readBody(req) {
+// The CI review route alone accepts a larger bounded conversation; the personal API keeps the smaller limits.
+// Characters stay well under a 200K-token context; the CLI selects 1M only for explicit [1m] models.
+const REVIEW_LIMITS = { bodyBytes: 640_000, characters: 400_000, timeoutMs: 300_000 };
+async function readBody(req, maxBytes = 256_000) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw new ApiError(415, 'invalid_content_type', 'Send Content-Type: application/json.');
   const chunks = []; let size = 0;
   for await (const part of req.iterator({ destroyOnReturn: false })) {
     size += part.length;
-    if (size > 256_000) {
+    if (size > maxBytes) {
       req.resume();
-      throw new ApiError(413, 'body_too_large', 'Request body exceeds 256 KB.');
+      throw new ApiError(413, 'body_too_large', `Request body exceeds ${Math.round(maxBytes / 1000)} KB.`);
     }
     chunks.push(part);
   }
@@ -74,9 +77,9 @@ export function createServer(config, providers) {
         if (!bearer(req, config.reviewKey)) throw new ApiError(401, 'unauthorized', 'A review credential is required.');
         if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST.');
         if (req.headers.origin) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
-        const body = validateRequest(await readBody(req), 200_000);
+        const body = validateRequest(await readBody(req, REVIEW_LIMITS.bodyBytes), REVIEW_LIMITS.characters);
         if (body.model !== 'claude/claude-opus-5-5' || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
-        const text = await providers.complete(body, { signal: controller.signal, reasoningEffort: 'high' });
+        const text = await providers.complete(body, { signal: controller.signal, reasoningEffort: 'high', timeoutMs: REVIEW_LIMITS.timeoutMs });
         if (!res.destroyed) json(res, 200, apiResult(body.model, text, 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
         return;
       }

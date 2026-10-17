@@ -125,7 +125,7 @@ export function createProviders(config, run = runProcess) {
     }).finally(() => { statusPending = undefined; });
     return statusPending;
   }
-  async function complete(body, { signal, reasoningEffort } = {}) {
+  async function complete(body, { signal, reasoningEffort, timeoutMs = config.timeoutMs } = {}) {
     const { provider, model } = resolveModel(body.model, config);
     if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
     active.add(provider);
@@ -138,7 +138,7 @@ export function createProviders(config, run = runProcess) {
       const invocation = providerCommand(provider, config, model, reasoningEffort);
       const result = await run(invocation.command, invocation.args, {
         cwd: directory, input: conversationPrompt(body.messages), signal,
-        timeoutMs: config.timeoutMs, env: await providerEnvironment(provider, config),
+        timeoutMs, env: await providerEnvironment(provider, config),
       });
       return parseProviderResult(provider, result);
     } finally {

@@ -292,6 +292,23 @@ test('qualified models route to the correct provider CLI and do not change defau
   for (const model of ['claude/', 'unknown/opus', 'claude/--help', 'chatgpt/test\n', 'chatgpt/a/b']) assert.throws(() => validateRequest({ ...payload, model }));
 });
 
+test('provider calls use the configured timeout unless a route sets its own', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'subscription-timeout-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = await loadConfig({ APP_DATA_DIR: directory });
+  const timeouts = [];
+  const providers = createProviders(config, async (command, args, options) => {
+    if (args[0] === 'auth') return { code: 0, stdout: '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}', stderr: '' };
+    if (args[0] === 'login') return { code: 0, stdout: 'Logged in using ChatGPT', stderr: '' };
+    timeouts.push(options.timeoutMs);
+    return { code: 0, stderr: '', stdout: '{"type":"result","subtype":"success","result":"ok"}' };
+  });
+  const body = validateRequest({ ...payload, model: 'claude' });
+  await providers.complete(body);
+  await providers.complete(body, { timeoutMs: 300_000 });
+  assert.deepEqual(timeouts, [90_000, 300_000]);
+});
+
 test('process runner sends stdin literally, bounds output, and terminates timeouts', async () => {
   const result = await runProcess(process.execPath, ['-e', 'process.stdin.pipe(process.stdout)'], { input: '$(do-not-execute)\nhello' });
   assert.equal(result.stdout, '$(do-not-execute)\nhello');
@@ -322,6 +339,7 @@ test('dedicated CI key allows only fixed-model review and never personal API acc
   assert.equal((await result.json()).model, body.model);
   assert.equal(seen.length, 1);
   assert.equal(seen[0].options.reasoningEffort, 'high');
+  assert.equal(seen[0].options.timeoutMs, 300_000);
   const args = providerCommand('claude', {}, 'claude-opus-5-5', 'high').args;
   assert.equal(args[args.indexOf('--effort') + 1], 'high');
   assert.equal(JSON.parse(args[args.indexOf('--settings') + 1]).switchModelsOnFlag, false);
@@ -349,13 +367,49 @@ test('review credential must be private, bounded and not a symlink', async t => 
 });
 
 
+test('review jobs: submit returns at once, and only the review key can check results', async t => {
+  let release;
+  const { url, config, calls } = await fixture(t, { complete: async (body, options) => {
+    calls.push({ body, options });
+    await new Promise(resolve => { release = resolve; });
+    return '{"status":"completed","findings":[]}';
+  } });
+  config.reviewKey = 'slice_ci_' + 'c'.repeat(64);
+  const reviewHeaders = { 'content-type': 'application/json', authorization: 'Bearer ' + config.reviewKey };
+  const body = JSON.stringify({ model: 'claude/claude-opus-5-5', messages: [{ role: 'user', content: 'review this' }] });
+  const submitted = await fetch(url + '/ci/slice/review', { method: 'POST', headers: { ...reviewHeaders, prefer: 'respond-async' }, body });
+  assert.equal(submitted.status, 202);
+  const job = await submitted.json();
+  assert.equal(submitted.headers.get('location'), '/ci/slice/review?job=' + job.id);
+  assert.equal(job.status, 'queued');
+  const check = extra => fetch(url + '/ci/slice/review?job=' + job.id, { headers: { ...reviewHeaders, ...extra } });
+  assert.equal((await check({ authorization: 'Bearer ' + key })).status, 401);
+  assert.equal((await check({ authorization: undefined })).status, 401);
+  assert.equal((await check({ origin: 'https://example.test' })).status, 403);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await (await check()).json()).status, 'running');
+  assert.equal(calls[0].options.timeoutMs, 300_000);
+  assert.equal(calls[0].options.reasoningEffort, 'high');
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  const done = await (await check()).json();
+  assert.equal(done.status, 'completed');
+  assert.equal(done.result.model, 'claude/claude-opus-5-5');
+  assert.equal(done.result.choices[0].message.content, '{"status":"completed","findings":[]}');
+  assert.equal((await fetch(url + '/ci/slice/review?job=nope', { headers: reviewHeaders })).status, 400);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'PUT', headers: reviewHeaders, body })).status, 405);
+});
+
 test('only the authenticated review route accepts the bounded larger conversation', async t => {
   const { url, config, calls } = await fixture(t);
   config.reviewKey = 'slice_ci_' + 'b'.repeat(64);
   const reviewHeaders = { ...headers, authorization: 'Bearer ' + config.reviewKey };
   const body = length => JSON.stringify({ model: 'claude/claude-opus-5-5', messages: [{ role: 'user', content: 'x'.repeat(length) }] });
-  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(180_000) })).status, 200);
-  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(200_001) })).status, 413);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(390_000) })).status, 200);
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(400_001) })).status, 413);
+  const oversized = await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: body(640_001) });
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).error.code, 'body_too_large');
   assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers, body: body(180_000) })).status, 401);
   assert.equal((await fetch(url + '/v1/chat/completions', { method: 'POST', headers, body: body(100_001) })).status, 413);
   assert.equal(calls.length, 1);

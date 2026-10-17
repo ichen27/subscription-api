@@ -4,6 +4,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { ApiError, publicError } from './errors.mjs';
 import { validateRequest } from './providers.mjs';
 import { modelCatalog, defaultModels } from './models.mjs';
+import { createReviewJobs } from './review-jobs.mjs';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -27,14 +28,17 @@ function launcherOwner(req, config) {
     && req.headers['x-forwarded-proto'] === 'https'
     && req.headers['cf-access-authenticated-user-email'] === config.ownerEmail;
 }
-async function readBody(req) {
+// The CI review route alone accepts a larger bounded conversation; the personal API keeps the smaller limits.
+// Characters stay well under a 200K-token context; the CLI selects 1M only for explicit [1m] models.
+const REVIEW_LIMITS = { bodyBytes: 640_000, characters: 400_000, timeoutMs: 300_000 };
+async function readBody(req, maxBytes = 256_000) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw new ApiError(415, 'invalid_content_type', 'Send Content-Type: application/json.');
   const chunks = []; let size = 0;
   for await (const part of req.iterator({ destroyOnReturn: false })) {
     size += part.length;
-    if (size > 256_000) {
+    if (size > maxBytes) {
       req.resume();
-      throw new ApiError(413, 'body_too_large', 'Request body exceeds 256 KB.');
+      throw new ApiError(413, 'body_too_large', `Request body exceeds ${Math.round(maxBytes / 1000)} KB.`);
     }
     chunks.push(part);
   }
@@ -45,8 +49,13 @@ function apiResult(model, text, id, created) {
   return { id, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }] };
 }
 
-export function createServer(config, providers) {
+export function createServer(config, providers, { reviewJobs } = {}) {
   const requests = new Set();
+  const reviewText = (body, signal) => providers.complete(body, { signal, reasoningEffort: 'high', timeoutMs: REVIEW_LIMITS.timeoutMs });
+  const jobs = reviewJobs || createReviewJobs(async (body, signal) =>
+    apiResult(body.model, await reviewText(body, signal), 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
+  const sweeper = setInterval(() => jobs.sweep(), 15_000);
+  sweeper.unref();
   const server = http.createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-content-type-options', 'nosniff');
@@ -72,11 +81,19 @@ export function createServer(config, providers) {
       if (url.pathname === '/ci/slice/review') {
         if (!config.reviewKey) throw new ApiError(404, 'not_found', 'Review endpoint is disabled.');
         if (!bearer(req, config.reviewKey)) throw new ApiError(401, 'unauthorized', 'A review credential is required.');
-        if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST.');
         if (req.headers.origin) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
-        const body = validateRequest(await readBody(req), 200_000);
+        if (req.method === 'GET') return json(res, 200, jobs.get(url.searchParams.get('job')));
+        if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST to submit or GET to check a review job.');
+        const body = validateRequest(await readBody(req, REVIEW_LIMITS.bodyBytes), REVIEW_LIMITS.characters);
         if (body.model !== 'claude/claude-opus-5-5' || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
-        const text = await providers.complete(body, { signal: controller.signal, reasoningEffort: 'high' });
+        // `Prefer: respond-async` queues a job and returns at once. Without it the request waits,
+        // which only suits reviews that finish before the public proxy's timeout.
+        if (/(^|[\s,])respond-async($|[\s,;])/i.test(req.headers.prefer || '')) {
+          const job = jobs.submit(body);
+          res.setHeader('location', '/ci/slice/review?job=' + job.id);
+          return json(res, 202, job);
+        }
+        const text = await reviewText(body, controller.signal);
         if (!res.destroyed) json(res, 200, apiResult(body.model, text, 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
         return;
       }
@@ -142,6 +159,8 @@ export function createServer(config, providers) {
   server.requestTimeout = 30_000;
   server.headersTimeout = 10_000;
   server.stop = () => {
+    clearInterval(sweeper);
+    jobs.stop();
     for (const controller of requests) controller.abort();
     server.close(); server.closeIdleConnections();
   };

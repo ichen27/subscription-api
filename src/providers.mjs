@@ -175,5 +175,10 @@ export function createProviders(config, run = runProcess) {
       if (directory) await rm(directory, { recursive: true, force: true });
     }
   }
-  return { status, complete };
+  async function withProvider(provider, operation) {
+    if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
+    active.add(provider);
+    try { return await operation(); } finally { active.delete(provider); }
+  }
+  return { status, complete, withProvider };
 }

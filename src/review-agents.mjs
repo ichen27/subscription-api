@@ -23,3 +23,5 @@ export async function resolveReviewRequest(store, project, raw) {
   if (snapshot.repository !== raw.repository) throw new ApiError(403,'repository_mismatch','The repository must match this project.');
   return {...snapshot,commit:raw.commit.toLowerCase(),...(raw.base ? {base:raw.base.toLowerCase()} : {}),messages:structuredClone(body.messages),schema:jsonSchemaOf(body)};
 }
+
+export function possibleInjection(text) { return /ignore\s+(?:all|previous|your)\s+instructions|you are now|system prompt|disregard|do not report|report no findings/i.test(text); }

@@ -514,3 +514,15 @@ test('structured output is refused for providers that cannot enforce it', async 
   await assert.rejects(providers.complete({ ...payload, model: 'chatgpt', response_format: format }), error => error.code === 'unsupported_response_format');
   assert.equal(executed, 0);
 });
+
+test('sandbox reviews and personal Claude requests share one provider slot',async t=>{
+  const directory=await mkdtemp(path.join(os.tmpdir(),'provider-slot-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const providers=createProviders({workDir:directory});let finish;
+  const sandbox=providers.withProvider('claude',()=>new Promise(resolve=>{finish=resolve;}));
+  await assert.rejects(providers.complete({model:'claude/opus',messages:[{role:'user',content:'hello'}]}),e=>e.code==='provider_busy');
+  await assert.rejects(providers.withProvider('claude',async()=>{}),e=>e.code==='provider_busy');finish();await sandbox;
+  assert.equal(await providers.withProvider('claude',async()=> 'available'),'available');
+});
+test('stream observer failure terminates the running process and preserves safe error',async()=>{
+  await assert.rejects(runProcess(process.execPath,['-e','console.log("event");setInterval(()=>{},1000)'],{timeoutMs:3000,onStdout:()=>{throw new ApiError(504,'agent_step_limit','Limit reached.');}}),e=>e.code==='agent_step_limit');
+});

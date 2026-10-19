@@ -1,0 +1,10 @@
+{
+  "strictPluginOnlyCustomization": true,
+  "disableAllHooks": true,
+  "allowManagedMcpServersOnly": true,
+  "strictKnownMarketplaces": [],
+  "claudeMdExcludes": ["/repo/**", "/base/**", "/workspace/**"],
+  "permissions": {
+    "deny": ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"]
+  }
+}

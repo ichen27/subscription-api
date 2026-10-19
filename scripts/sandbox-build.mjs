@@ -1,0 +1,10 @@
+import {spawn} from 'node:child_process';
+import {runProcess} from '../src/process.mjs';
+const docker=process.env.DOCKER_BIN||'docker';
+const child=spawn(docker,['build','--pull','-t','subscription-review:2.1.301','-f','sandbox/Dockerfile','.'],{stdio:'inherit'});
+const code=await new Promise(resolve=>{child.on('error',()=>resolve(1));child.on('close',resolve);});
+if(code!==0)process.exit(1);
+const image=await runProcess(docker,['image','inspect','subscription-review:2.1.301','--format','{{.Id}}']);
+if(image.code!==0)process.exit(1);
+console.log('Candidate image digest: '+image.stdout.trim());
+console.log('Run sandbox:smoke before configuring REVIEW_IMAGE_DIGEST in the service.');

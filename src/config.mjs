@@ -36,6 +36,7 @@ export async function loadConfig(env = process.env) {
   if (parsedOrigin.origin !== origin) throw new Error('PUBLIC_ORIGIN must be an origin without a trailing slash or path.');
   return {
     reviewStore: await loadReviewStore(dataDir),
+    reviewImage: env.REVIEW_IMAGE_DIGEST || '', dockerBin: env.DOCKER_BIN || 'docker',
     port, dataDir, workDir, apiKey, origin, host: parsedOrigin.host,
     ownerEmail: env.LAUNCHER_OWNER_EMAIL || '',
     codexBin: env.CODEX_BIN || 'codex', claudeBin: env.CLAUDE_BIN || 'claude',

@@ -12,7 +12,7 @@ export function subscriptionEnvironment(source = process.env) {
     .filter(key => source[key] !== undefined).map(key => [key, source[key]]));
 }
 
-export function runProcess(command, args, { cwd, input = '', signal, timeoutMs = 90_000, env = subscriptionEnvironment(), maxBytes = 2_000_000 } = {}) {
+export function runProcess(command, args, { cwd, input = '', signal, timeoutMs = 90_000, env = subscriptionEnvironment(), maxBytes = 2_000_000, onStdout } = {}) {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new ApiError(499, 'cancelled', 'Request cancelled.'));
     let child;
@@ -40,7 +40,10 @@ export function runProcess(command, args, { cwd, input = '', signal, timeoutMs =
     const collect = (target, data) => {
       size += Buffer.byteLength(data, 'utf8');
       if (size > maxBytes) return stop(new ApiError(502, 'provider_output_limit', 'The provider response exceeded the size limit.'));
-      if (target === 'out') stdout += data; else stderr += data;
+      if (target === 'out') {
+        stdout += data;
+        if (!failure && onStdout) {try {onStdout(data);} catch (error) {stop(error);}}
+      } else stderr += data;
     };
     child.stdout.setEncoding('utf8').on('data', data => collect('out', data));
     child.stderr.setEncoding('utf8').on('data', data => collect('err', data));

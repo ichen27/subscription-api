@@ -76,14 +76,17 @@ export function conversationPrompt(messages) {
   return 'Answer the final user message in this JSON conversation. Earlier entries provide context. Return only the assistant reply, not a JSON wrapper.\n\n' + JSON.stringify(messages);
 }
 
-export function parseProviderResult(provider, result) {
+export function parseProviderResult(provider, result, structured = false) {
   let text;
   let failed = result.code !== 0;
   try {
     if (provider === 'claude') {
       const data = JSON.parse(result.stdout);
       failed ||= data.is_error === true || data.type !== 'result' || data.subtype !== 'success';
-      text = data.result;
+      text = structured
+        ? (data.structured_output && typeof data.structured_output === 'object' && !Array.isArray(data.structured_output)
+          ? JSON.stringify(data.structured_output) : undefined)
+        : data.result;
     } else {
       const events = result.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
       failed ||= events.some(event => ['error', 'turn.failed'].includes(event.type));
@@ -94,6 +97,7 @@ export function parseProviderResult(provider, result) {
   if (failed || typeof text !== 'string' || !text.trim()) {
     // Provider output is never returned verbatim on failure: it can contain credentials or local paths.
     const diagnostic = result.stderr + result.stdout;
+    if (/prompt_too_long|prompt is too long|context (window|length).*(exceed|limit)/i.test(diagnostic)) throw new ApiError(413, 'provider_context_limit', 'The review exceeds the provider context window. Reduce redundant context before retrying.');
     if (/rate.?limit|usage.?limit|quota|limit reached|exceeded.*limit/i.test(diagnostic)) throw new ApiError(429, 'subscription_limit', 'This provider has reached a usage limit. Wait for its reset or choose the other provider.');
     if (/not logged|not authenticated|login required|authentication.*fail|token.*expired|invalid.*token|unauthorized|please.*log.?in/i.test(diagnostic)) throw new ApiError(503, 'sign_in_required', 'Sign in to this provider on the Mac mini, then refresh connection status.');
     throw new ApiError(502, 'provider_failed', 'The provider could not complete the request. Check its sign-in and model access, or try again.');
@@ -125,7 +129,7 @@ export function createProviders(config, run = runProcess) {
     }).finally(() => { statusPending = undefined; });
     return statusPending;
   }
-  async function complete(body, { signal, reasoningEffort, timeoutMs = config.timeoutMs } = {}) {
+  async function complete(body, { signal, reasoningEffort, timeoutMs = config.timeoutMs, jsonSchema } = {}) {
     const { provider, model } = resolveModel(body.model, config);
     if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
     active.add(provider);
@@ -136,11 +140,17 @@ export function createProviders(config, run = runProcess) {
       if (signal?.aborted) throw new ApiError(499, 'cancelled', 'Request cancelled.');
       directory = await mkdtemp(path.join(config.workDir, 'request-'));
       const invocation = providerCommand(provider, config, model, reasoningEffort);
+      if (jsonSchema) {
+        if (provider !== 'claude') throw new ApiError(400, 'unsupported_schema', 'Structured review requires Claude.');
+        invocation.args.push('--json-schema', JSON.stringify(jsonSchema));
+      }
       const result = await run(invocation.command, invocation.args, {
-        cwd: directory, input: conversationPrompt(body.messages), signal,
+        cwd: directory, input: jsonSchema
+          ? body.messages.map(message => `[${message.role}]\n${message.content}`).join("\n\n")
+          : conversationPrompt(body.messages), signal,
         timeoutMs, env: await providerEnvironment(provider, config),
       });
-      return parseProviderResult(provider, result);
+      return parseProviderResult(provider, result, Boolean(jsonSchema));
     } finally {
       active.delete(provider);
       if (directory) await rm(directory, { recursive: true, force: true });

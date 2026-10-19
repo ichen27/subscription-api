@@ -45,8 +45,16 @@ const run=async(command,args,options)=>{
   await networkChecks(args);
   let lines='';const original=options.onStdout;
   return runProcess(command,args,{...options,onStdout:chunk=>{
-    original(chunk);lines+=chunk;let end;
+    lines+=chunk;let end;
     while((end=lines.indexOf('\n'))>=0){const line=lines.slice(0,end);lines=lines.slice(end+1);if(!line.trim())continue;const event=JSON.parse(line);
+      // This smoke independently tests the CLI's own permission denial. Withhold only
+      // the deliberate container /etc/passwd probe from the additional production
+      // observer; every other event keeps all production checks. The final CLI
+      // permission_denials assertion is mandatory, so model claims cannot pass it.
+      if(event.type==='assistant') {
+        const checked={...event,message:{...event.message,content:(event.message?.content||[]).filter(item=>!(item.type==='tool_use'&&item.name==='Read'&&item.input?.file_path==='/etc/passwd'))}};
+        original(JSON.stringify(checked)+'\n');
+      } else original(line+'\n');
       if(event.type==='system'&&event.subtype==='init'){
         initialized=true;selectedSkill=event.skills?.includes('review-skills:probe')===true;repoSkillExcluded=!event.skills?.some(s=>s.includes('untrusted-repo-skill'));
         assert.ok(selectedSkill,'Selected skill must load');assert.ok(repoSkillExcluded,'Repository skill must not load');assert.deepEqual(event.mcp_servers,[]);

@@ -68,7 +68,7 @@ export function validateSkillFiles(files) {
   if (!front) throw invalid();
   // Deliberately accept a small standard frontmatter subset, never evaluate YAML.
   const field = key => {
-    const match = new RegExp('^' + key + ':\\s*([^\\r\\n]+)$', 'm').exec(front[1]);
+    const match = new RegExp('^' + key + ':[ \t]*([^\\r\\n]+)$', 'm').exec(front[1]);
     if (!match || /^[>|&*!{[]/.test(match[1])) throw invalid();
     return match[1].trim().replace(/^(["'])(.*)\1$/, '$2');
   };
@@ -87,10 +87,12 @@ async function privateJson(file, fallback) {
   finally { await handle?.close(); }
 }
 async function atomic(file, value) {
+  const serialized = JSON.stringify(value) + '\n';
+  if (Buffer.byteLength(serialized) > 2_000_000) throw invalid();
   const tmp = file + '.' + randomUUID() + '.tmp';
   try {
     const handle = await open(tmp, 'wx', 0o600);
-    try { await handle.writeFile(JSON.stringify(value) + '\n'); await handle.sync(); } finally { await handle.close(); }
+    try { await handle.writeFile(serialized); await handle.sync(); } finally { await handle.close(); }
     await rename(tmp, file);
   } finally { await rm(tmp, { force: true }); }
 }
@@ -141,6 +143,7 @@ export async function loadReviewStore(dataDir) {
       ready(); const draft = structuredClone(state), tokens = structuredClone(secrets);
       const result = await operation(draft, tokens);
       draft.revision++; validate(draft, tokens);
+      if (Buffer.byteLength(JSON.stringify(draft) + '\n') > 2_000_000) throw invalid();
       // Immutable token versions are written first; the atomic config rename is
       // the commit point. A crash can leave an unreferenced token, never a dangling ref.
       const referenced = new Set([...state.projects, ...draft.projects].map(p => p.tokenId));
@@ -197,8 +200,13 @@ export async function loadReviewStore(dataDir) {
         for (const [name, content] of Object.entries(checked.files)) {
           const file = path.join(dir, name);
           if (name.includes('/')) await directories(dir, name.slice(0, name.lastIndexOf('/')), true);
-          try { const handle = await open(file, 'wx', 0o600); try { await handle.writeFile(content); } finally { await handle.close(); } }
-          catch (error) { if (error.code !== 'EEXIST') throw error; }
+          const temporary = file + '.' + randomUUID() + '.tmp';
+          try {
+            const handle = await open(temporary, 'wx', 0o600);
+            try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); }
+            try { if ((await lstat(file)).isSymbolicLink()) throw invalid(); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+            await rename(temporary, file);
+          } finally { await rm(temporary, { force: true }); }
         }
         const skill = { id: skillId, name: checked.name, description: checked.description, updatedAt: new Date().toISOString(), digest: checked.digest, files: Object.keys(checked.files) };
         await skillContents(root, skill);

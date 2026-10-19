@@ -80,3 +80,21 @@ test('skill symlink tampering is rejected on reload and cannot redirect a new up
   await rm(file); await symlink(path.join(dir,'review/config.json'),file);
   assert.throws((await loadReviewStore(dir)).ready,e=>e.code==='review_config_invalid');
 });
+test('skill upload repairs an interrupted file without publishing partial content', async t => {
+  const {dir,store} = await fixture(t);
+  const meta = validateSkillFiles(skill);
+  await writeFile(path.join(dir,'review/skills/inspect',meta.digest,'SKILL.md'), 'partial', {mode:0o600});
+  await store.saveSkill('inspect',skill);
+  assert.equal((await loadReviewStore(dir)).view().skills[0].id,'inspect');
+  assert.throws(() => validateSkillFiles({'SKILL.md':'---\nname:\ndescription: real\n---\nbody'}));
+});
+test('configuration accepted by save remains within the reload size bound', async t => {
+  const {dir,store} = await fixture(t);
+  let rejected = false;
+  for (let n=0;n<100;n++) {
+    try { await store.saveAgent({...agent,name:'agent-'+n,instructions:'x'.repeat(20000),description:'d'.repeat(1000)}); }
+    catch (error) { assert.equal(error.code,'invalid_review_config'); rejected = true; break; }
+  }
+  assert.equal(rejected,true);
+  assert.deepEqual((await loadReviewStore(dir)).view(),store.view());
+});

@@ -8,16 +8,24 @@ The gateway invokes the official Codex and Claude Code CLIs using their existing
 
 ## Status and limitations
 
-Initial implementation, tested on macOS with Node 22+, Codex CLI 0.159.2, and Claude Code 2.1.273. Both subscription providers completed live smoke tests. See [validation evidence](docs/validation.md) and the [artifact index](docs/artifacts.md).
+The personal API and legacy CI text reviewer have been deployed and smoke-tested. An optional repository-review portal, project job API and Docker sandbox are implemented on this branch; sandbox live acceptance and client rollout are pending. The sandbox pins Claude Code 2.1.301. See [validation evidence](docs/validation.md) and the [artifact index](docs/artifacts.md).
 
 - Personal, single-user use. This is not a shared subscription service or a replacement for the full OpenAI/Anthropic APIs.
-- Supports `GET /v1/models` and `POST /v1/chat/completions`, accepting only `model`, `messages`, and optional `stream`.
-- Text only. Tool calls, images, files, Responses API, sampling controls, output-token limits, and structured-output guarantees are unsupported. Unsupported parameters return an error rather than being ignored.
+- The personal API supports `GET /v1/models` and `POST /v1/chat/completions`, accepting only `model`, `messages`, and optional `stream`.
+- The personal API is text only. Tool calls, images, files, Responses API, sampling controls, output-token limits, and structured-output guarantees are unsupported. Unsupported parameters return an error rather than being ignored.
 - Messages are serialized as a role-labeled conversation in a CLI prompt. This approximates chat history; it does not preserve the providers' native API role hierarchy exactly. CLI instructions may also affect replies.
 - SSE is supported for client compatibility, but replies are buffered and delivered when the CLI completes. Heartbeats keep the connection active. Errors after streaming starts arrive as an `error` object, followed by `[DONE]`.
 - At most one in-flight request per provider, 90-second inference timeout, 100 messages, 100,000 characters, and a 256 KB HTTP body limit. Requests above these limits fail explicitly.
 - Subscription limits, model access, credit settings, and provider terms still apply. Signing in does not guarantee every model is available or that all third-party usage is covered by included allowance. No pricing or quota estimates are invented.
 - The gateway does not save prompts or responses itself. CLI/provider diagnostics, account history, and provider retention policies remain outside its control. Gateway request directories are removed after completion.
+
+## Repository reviews (staged)
+
+The owner portal at `/reviews` configures project keys, allowed agents and immutable skill revisions. `/ci/review` submits asynchronous jobs against exact head/base commits. The candidate runner reads repository files in an isolated container and returns structured output, execution metadata and optional injection warnings. Clients must still validate completeness and exact-source findings.
+
+This route stays disabled without `REVIEW_IMAGE_DIGEST`. Live skill invocation, permission denial and schema completion are pending after a subscription-limit failure; do not activate it based on the offline smoke alone. See the [review API and acceptance status](docs/review-agents.md), [deployment runbook](docs/deployment.md#repository-review-rollout) and [sanitized evidence](docs/validation.md#review-agent-candidate--october-19-2026).
+
+The legacy `/ci/slice/review` remains available for both Slice and CuseSublets, including Cuse's `full-context-v1` mode (2M message characters, 3 MB body, 15-minute inference). Its limits are independent of the personal API and the new 400K-character/640 KB repository-review route. Keep it until **both clients** complete migration.
 
 ## Prerequisites
 

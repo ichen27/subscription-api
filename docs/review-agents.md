@@ -6,9 +6,9 @@ The private store lives under `APP_DATA_DIR/review/`. `config.json` contains ver
 
 Writes are serialized and files are replaced atomically. Secret versions are written before the config commit point; interrupted saves can leave an unreferenced secret version, never a committed reference to a missing token. Obsolete versions are removed on later mutations. Skill revisions are immutable and content-addressed, so queued job snapshots retain their original instructions, settings and skill contents. Runtime data is private and must not be committed.
 
-Invalid persisted data disables the review store with `review_config_invalid`, rather than overwriting it. The HTTP integration must isolate that failure from the existing personal API. Skills accept bounded text files and a standard `SKILL.md` with simple name/description frontmatter; path traversal, symlinks, binary content and missing metadata are rejected. Multiline YAML metadata is currently unsupported and reports validation failure.
+Invalid persisted data disables the review store with `review_config_invalid`, rather than overwriting it. The HTTP integration isolates that failure from the existing personal API. Skills accept bounded text files and a standard `SKILL.md` with simple name/description frontmatter; path traversal, symlinks, binary content and missing metadata are rejected. Multiline YAML metadata is currently unsupported and reports validation failure.
 
-The remaining phases add the owner-only portal, project-scoped async jobs, a tested read-only container runner, deployment documentation, and client migrations for both Slice and CuseSublets. The legacy `/ci/slice/review` endpoint, including Cuse's `full-context-v1` mode, must remain available until both clients have migrated successfully. A review job must pin both source revisions when base-side evidence is needed. Tool access does not replace independent citation or completion checks.
+The portal, project-scoped async jobs and candidate container runner are implemented. Live acceptance, deployment and client migrations for both Slice and CuseSublets remain pending. The legacy `/ci/slice/review` endpoint, including Cuse's `full-context-v1` mode, must remain available until both clients have migrated successfully. A review job must pin both source revisions when base-side evidence is needed. Tool access does not replace independent citation or completion checks.
 
 Validation: `npm ci`, `npm test`, `npm run check`. No live configuration or gateway restart is required to exercise the isolated store tests.
 
@@ -45,3 +45,20 @@ Startup cleanup is scoped to a label derived from the runtime work directory, pr
 The candidate now limits preapproved reads to absolute source/skill paths, explicitly denies runtime and credential paths in managed policy, and rejects unexpected path or skill events. These are layered checks; the runtime event observer is not a substitute for the pending live CLI permission test. Shutdown waits for job cleanup, with container removals in parallel and a 28-second final failure deadline; an exceeded deadline logs failure and requires host verification. Stale runtime recovery is serialized by a separate private guard file. A crash during that short recovery window leaves the guard in place and requires manual repair after confirming no runtime is active; it never guesses that a concurrent recovery is safe to delete. Archive decompression and extraction honor cancellation.
 
 The live smoke independently tests the CLI permission policy for a deliberate `/etc/passwd` read. Its harness withholds only that known container-path tool event from the additional production observer, then requires the CLI's explicit permission-denial record. Every other event retains production checks. Production never bypasses the observer. This test remains pending; a model statement that access was denied does not satisfy it.
+
+## Client request example
+
+[review-request.json](../examples/review-request.json) uses a pinned public fixture and a small output schema. After acceptance and provisioning, submit it with the project key (never the general gateway key):
+
+```sh
+curl --fail-with-body "$REVIEW_ORIGIN/ci/review" \
+  -H "Authorization: Bearer $PROJECT_REVIEW_KEY" \
+  -H "CF-Access-Client-Id: $REVIEW_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $REVIEW_ACCESS_CLIENT_SECRET" \
+  -H 'Prefer: respond-async' -H 'Content-Type: application/json' \
+  --data-binary @examples/review-request.json
+```
+
+Use a fixture project whose repository and allowed agent match the example. Poll the returned job ID at the same trusted origin/path every ten seconds with the same credentials; never forward them to an arbitrary `Location` host. Stop on failed state. Completed transport alone is not a completed review: parse and validate the result, require the client's completion contract, then validate every citation against the pinned diff. Preserve valid partial findings while keeping unresolved/incomplete reports unsuccessful. The job response also includes provenance (configuration revision, source SHAs, selected model, skill digests, image and CLI version); requested model metadata does not attest the upstream model actually used.
+
+Agents allow 60–600 seconds and 10–100 tool steps. Client wait and workflow limits must allow queueing, execution, cleanup and any one output-only repair under a shared deadline. A 600-second agent plus a retry can exceed a 20-minute client deadline even without queueing; use a lower agent limit or explicitly raise both client and workflow limits. Transport failures must not be blindly resubmitted. The gateway does not automatically retry jobs or switch providers.

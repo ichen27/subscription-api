@@ -84,7 +84,7 @@ export function createServer(config, providers, { reviewJobs } = {}) {
         if (req.headers.origin) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
         if (req.method === 'GET') return json(res, 200, jobs.get(url.searchParams.get('job')));
         if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST to submit or GET to check a review job.');
-        const body = validateRequest(await readBody(req, REVIEW_LIMITS.bodyBytes), REVIEW_LIMITS.characters);
+        const body = validateRequest(await readBody(req, REVIEW_LIMITS.bodyBytes), REVIEW_LIMITS.characters, { responseFormat: true });
         if (body.model !== 'claude/claude-opus-5-5' || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
         // `Prefer: respond-async` queues a job and returns at once. Without it the request waits,
         // which only suits reviews that finish before the public proxy's timeout.

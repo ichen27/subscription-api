@@ -1,6 +1,6 @@
 {
   "cliVersion": "2.1.301",
-  "image": "sha256:36f674b4f1e44cba5b03e793b0f7714b79bf6eac0f93c27e62c20e2ad9b21dcb",
+  "image": "sha256:6e5c41d107529e69590a3b0a96dfdd825531c90e5c1c2ac48e37ef1e94fa08d7",
   "mode": "offline",
   "network": {
     "example": "HTTP/1.1 403 Forbidden",

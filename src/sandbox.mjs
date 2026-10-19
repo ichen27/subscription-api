@@ -11,7 +11,7 @@ const toolNames=['Read','Grep','Glob','Skill'];
 export function injectionWarning(messages){return messages.some(m=>possibleInjection(m.content));}
 export function reviewArguments(spec){
   return ['--print','--restricted','--setting-sources','','--strict-mcp-config','--no-chrome','--no-session-persistence',
-    '--permission-mode','dontAsk','--permission-prompts','none','--tools',toolNames.join(','),'--allowedTools',['Read','Grep','Glob',...spec.skills.map(s=>'Skill(review-skills:'+s.id+')')].join(','),
+    '--permission-mode','dontAsk','--permission-prompts','none','--tools',toolNames.join(','),'--allowedTools',[...['repo','base','skills'].map(dir=>'Read(//'+dir+'/**)'),...spec.skills.map(s=>'Skill(review-skills:'+s.id+')')].join(','),
     '--disallowedTools','Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task,Agent','--plugin-dir','/skills',
     ...(spec.base?['--add-dir','/base']:[]),'--add-dir','/skills','--add-dir','/repo',
     '--output-format','stream-json','--verbose','--model',spec.agent.model,'--effort',spec.agent.effort,
@@ -32,7 +32,13 @@ export function reviewStream(maxSteps, structured = false, selectedSkills = []){
     if(event.type==='assistant')for(const item of event.message?.content||[])if(item.type==='tool_use'&&!ids.has(item.id)){
       if(!available.includes(item.name)||typeof item.id!=='string')throw new ApiError(503,'sandbox_failed','The review CLI requested an unexpected tool.');
       if(item.name==='Skill'&&!selectedSkills.some(id=>item.input?.skill==='review-skills:'+id))throw new ApiError(503,'sandbox_failed','The review requested an unselected skill.');
-      ids.add(item.id);steps++;if(steps>=maxSteps)throw new ApiError(504,'agent_step_limit','The review reached the agent tool-use limit.');
+      if(['Read','Grep','Glob'].includes(item.name)) {
+        const supplied=item.name==='Read'?item.input?.file_path:item.input?.path;
+        const resolved=typeof supplied==='string'?path.posix.resolve('/workspace',supplied):'/workspace';
+        if(!['/repo','/base','/skills','/workspace'].some(root=>resolved===root||resolved.startsWith(root+'/')))
+          throw new ApiError(503,'sandbox_path_rejected','The review requested a path outside its source and skill directories.');
+      }
+      ids.add(item.id);steps++;if(steps>maxSteps)throw new ApiError(504,'agent_step_limit','The review reached the agent tool-use limit.');
     }
     if(event.type==='result'){if(result)throw new ApiError(502,'provider_failed','The review returned multiple final results.');result=event;}
   }
@@ -95,10 +101,10 @@ export function createSandbox(config,{run=runProcess,download=downloadRepository
         throw new ApiError(503,'sandbox_failed','The review sandbox could not complete.');
       }finally{
         let failed=false;
-        for(const target of [containerCreated&&name,proxyCreated&&proxy].filter(Boolean)){
+        await Promise.all([containerCreated&&name,proxyCreated&&proxy].filter(Boolean).map(async target=>{
           // The review uses --rm; removing an already exited container is harmless.
           try{const removed=await run(docker,['rm','-f',target],{env:hostEnv,timeoutMs:10_000});if(removed.code!==0&&!/No such container/i.test(removed.stderr))failed=true;}catch{failed=true;}
-        }
+        }));
         if(networkCreated)try{const removed=await run(docker,['network','rm',network],{env:hostEnv,timeoutMs:10_000});if(removed.code!==0&&!/not found/i.test(removed.stderr))failed=true;}catch{failed=true;}
         if(directory)await rm(directory,{recursive:true,force:true});
         log({jobId,project:spec.project,agent:spec.agent.name,durationMs:Date.now()-started,outcome:failed?'sandbox_cleanup_failed':outcome});
@@ -112,7 +118,11 @@ export function createSandbox(config,{run=runProcess,download=downloadRepository
 // After a crash, remove only this runtime's labeled containers/networks and own temp directories.
 export async function initializeSandbox(config,{run=runProcess}={}){
   const lock=path.join(config.workDir,'review-runtime.lock');
+  const guard=lock+'.recovery';
+  let guardHandle;
+  try {guardHandle=await open(guard,'wx',0o600);} catch {throw new ApiError(503,'sandbox_busy','Review runtime recovery is already active or needs repair.');}
   let handle;
+  try {
   try{handle=await open(lock,'wx',0o600);}catch(error){
     if(error.code!=='EEXIST')throw error;
     const stat=await lstat(lock);if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o077))throw new ApiError(503,'sandbox_unavailable','The review runtime lock needs repair on the service host.');
@@ -121,7 +131,8 @@ export async function initializeSandbox(config,{run=runProcess}={}){
     try{process.kill(previous,0);throw new ApiError(503,'sandbox_busy','Another review runtime is active.');}catch(error){if(error.code!=='ESRCH')throw error;}
     await rm(lock);handle=await open(lock,'wx',0o600);
   }
-  await handle.writeFile(String(process.pid));await handle.close();
+  await handle.writeFile(String(process.pid));await handle.sync();await handle.close();
+  } finally {await guardHandle.close();await rm(guard,{force:true});}
   const release=async()=>{if((await readFile(lock,'utf8').catch(()=>''))===String(process.pid))await rm(lock,{force:true});};
   const docker=config.dockerBin||'docker',owner=createHash('sha256').update(path.resolve(config.workDir)).digest('hex');
   async function command(args){const result=await run(docker,args,{env:subscriptionEnvironment(),timeoutMs:30_000});if(result.code!==0)throw new ApiError(503,'sandbox_unavailable','Review runtime cleanup failed. Check Docker on the service host.');return result.stdout.trim().split('\n').filter(Boolean);}

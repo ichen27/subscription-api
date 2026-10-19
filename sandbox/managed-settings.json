@@ -3,8 +3,41 @@
   "disableAllHooks": true,
   "allowManagedMcpServersOnly": true,
   "strictKnownMarketplaces": [],
-  "claudeMdExcludes": ["/repo/**", "/base/**", "/workspace/**"],
+  "claudeMdExcludes": [
+    "/repo/**",
+    "/base/**",
+    "/workspace/**"
+  ],
   "permissions": {
-    "deny": ["Bash", "PowerShell", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task", "Agent"]
+    "deny": [
+      "Bash",
+      "PowerShell",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "Agent",
+      "Read(//proc/**)",
+      "Read(//sys/**)",
+      "Read(//dev/**)",
+      "Read(//etc/**)",
+      "Read(//home/**)",
+      "Read(//root/**)",
+      "Read(//tmp/**)",
+      "Read(//opt/**)",
+      "Read(//usr/**)",
+      "Read(//var/**)",
+      "Read(//run/**)",
+      "Read(//mnt/**)",
+      "Read(//media/**)",
+      "Read(//boot/**)",
+      "Read(//bin/**)",
+      "Read(//lib/**)",
+      "Read(//sbin/**)",
+      "Read(//nodejs/**)"
+    ],
+    "blockReadsOutsideWorkingDirectories": true
   }
 }

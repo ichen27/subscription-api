@@ -27,3 +27,10 @@ test('host download sends token only to GitHub API and bounds redirects and body
   await assert.rejects(downloadRepository('owner/repo','a'.repeat(40),undefined,path.join(root,'big'),{fetcher:async()=>new Response(bytes),limits:{...ARCHIVE_LIMITS,compressed:10}}),e=>e.code==='repository_too_large');
   await assert.rejects(downloadRepository('owner/repo','a'.repeat(40),undefined,path.join(root,'missing'),{fetcher:async()=>new Response(null,{status:404})}),e=>e.code==='commit_not_found');
 });
+
+test('archive extraction honors cancellation while writing source entries',async t=>{
+  const root=await directory(t),controller=new AbortController();
+  const compressed=archive(Array.from({length:1000},(_,i)=>({name:'repo/file-'+i,text:'source'})));
+  const timer=setTimeout(()=>controller.abort(),10);
+  await assert.rejects(extractRepository(compressed,root,ARCHIVE_LIMITS,controller.signal),e=>e.code==='cancelled');clearTimeout(timer);
+});

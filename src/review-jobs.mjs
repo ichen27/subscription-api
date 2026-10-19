@@ -15,6 +15,7 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
   const jobs = new Map();
   const queue = [];
   let running, stopped = false;
+  const drains = [];
 
   function view(job) {
     const result = { id: job.id, status: job.status, ...(job.agent ? {agent:job.agent} : {}) };
@@ -56,6 +57,7 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
       fail(job, stopped ? new ApiError(503, 'shutting_down', 'The gateway is restarting.') : job.abandoned ? new ApiError(499, 'abandoned', 'Review cancelled because nobody checked on it.') : error);
     } finally {
       job.body = job.controller = running = undefined;
+      if (!queue.length) for (const resolve of drains.splice(0)) resolve();
       next();
     }
   }
@@ -97,6 +99,7 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
       stopped = true;
       for (const job of queue.splice(0)) { job.body = undefined; fail(job, new ApiError(503, 'shutting_down', 'The gateway is restarting.')); }
       running?.controller.abort();
+      return running ? new Promise(resolve => drains.push(resolve)) : Promise.resolve();
     },
   };
 }

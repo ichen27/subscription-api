@@ -1,10 +1,10 @@
-import {gunzip} from 'node:zlib';
-import {promisify} from 'node:util';
+import {createGunzip} from 'node:zlib';
+import {Readable,Writable} from 'node:stream';
+import {pipeline} from 'node:stream/promises';
 import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {possibleInjection} from './review-agents.mjs';
 import {ApiError} from './errors.mjs';
-const unzip=promisify(gunzip);
 export const ARCHIVE_LIMITS=Object.freeze({compressed:200_000_000,expanded:500_000_000,entries:100_000,timeoutMs:60_000});
 const unsafe=()=>new ApiError(422,'unsafe_repository_archive','The repository archive contains unsupported or unsafe entries.');
 const oversized=()=>new ApiError(413,'repository_too_large','The repository exceeds the archive limits.');
@@ -17,15 +17,23 @@ function pax(bytes){
   while(at<bytes.length){const space=bytes.indexOf(32,at);if(space<0)throw unsafe();const raw=bytes.subarray(at,space).toString('ascii');if(!/^[1-9][0-9]*$/.test(raw))throw unsafe();const size=Number(raw),end=at+size;if(end>bytes.length||end<=space+1||bytes[end-1]!==10)throw unsafe();const line=decoder.decode(bytes.subarray(space+1,end-1)),split=line.indexOf('=');if(split<1)throw unsafe();const key=line.slice(0,split);if(Object.hasOwn(out,key))throw unsafe();out[key]=line.slice(split+1);at=end;}
   return out;
 }
-export async function extractRepository(compressed,destination,limits=ARCHIVE_LIMITS){
+export async function extractRepository(compressed,destination,limits=ARCHIVE_LIMITS,signal){
+  const check=()=>{if(signal?.aborted)throw new ApiError(499,'cancelled','Review cancelled.');};
+  check();
   if(compressed.length>limits.compressed)throw oversized();
   let tar;
-  try{tar=await unzip(compressed,{maxOutputLength:limits.expanded});}catch(error){if(error.code==='ERR_BUFFER_TOO_LARGE')throw oversized();throw unsafe();}
+  try{
+    const chunks=[];let size=0;
+    await pipeline(Readable.from([compressed]),createGunzip(),new Writable({write(chunk,_encoding,done){size+=chunk.length;if(size>limits.expanded)return done(oversized());chunks.push(chunk);done();}}),{signal});
+    check();tar=Buffer.concat(chunks);
+  }catch(error){check();if(error instanceof ApiError)throw error;throw unsafe();}
+  check();
   let at=0,entries=0,total=0,root,pending={},ended=false,scanned=0,possiblePromptInjection=false;
   const paths=new Set();
   await mkdir(destination,{recursive:true,mode:0o755});
   try{
     while(at+512<=tar.length){
+      check();
       const header=tar.subarray(at,at+512);at+=512;
       if(header.every(b=>b===0)){if(at+512>tar.length||!tar.subarray(at).every(b=>b===0))throw unsafe();ended=true;break;}
       if(++entries>limits.entries)throw oversized();
@@ -51,6 +59,7 @@ export async function extractRepository(compressed,destination,limits=ARCHIVE_LI
     }
     if(!ended||Object.keys(pending).length||!root)throw unsafe();
   }catch(error){if(error instanceof ApiError)throw error;throw unsafe();}
+  check();
   return {entries,bytes:total,possiblePromptInjection};
 }
 export async function downloadRepository(repository,commit,token,destination,{signal,fetcher=fetch,limits=ARCHIVE_LIMITS}={}){
@@ -72,7 +81,7 @@ export async function downloadRepository(repository,commit,token,destination,{si
     const chunks=[];let size=0;
     for await(const chunk of response.body){size+=chunk.length;if(size>limits.compressed)throw oversized();chunks.push(chunk);}
     if(combined.aborted)throw new Error('Aborted');
-    return await extractRepository(Buffer.concat(chunks),destination,limits);
+    return await extractRepository(Buffer.concat(chunks),destination,limits,combined);
   }catch(error){
     if(signal?.aborted)throw new ApiError(499,'cancelled','Review cancelled.');
     if(error instanceof ApiError)throw error;

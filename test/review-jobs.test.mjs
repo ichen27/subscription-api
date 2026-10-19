@@ -130,3 +130,17 @@ test('stopping the gateway fails waiting jobs and cancels the running one', asyn
   assert.equal(jobs.get(running.id).status, 'failed');
   assert.equal(runs.length, 1);
 });
+
+test('unauthorized polling cannot keep another project job alive',async()=>{
+  const time=clock(), {run,runs}=controlled(),jobs=createReviewJobs(run,{now:time.now});
+  const first=jobs.submit({}, {owner:'one',agent:'general'});await tick();
+  time.state.now+=JOB_LIMITS.abandonMs-1;
+  assert.throws(()=>jobs.get(first.id,'two'),error=>error.code==='job_not_found');
+  time.state.now+=2;jobs.sweep();assert.equal(runs[0].signal.aborted,true);await tick();
+  assert.equal(jobs.get(first.id,'one').status,'failed');
+});
+test('cancellation cannot become a successful late completion and stopped queues reject submissions',async()=>{
+  const {run,runs}=controlled(),jobs=createReviewJobs(run);
+  const job=jobs.submit({});await tick();jobs.stop();runs[0].resolve({});await tick();
+  assert.equal(jobs.get(job.id).error.code,'shutting_down');assert.throws(()=>jobs.submit({}),error=>error.code==='shutting_down');
+});

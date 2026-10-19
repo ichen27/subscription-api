@@ -14,12 +14,17 @@ const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = {}) {
   const jobs = new Map();
   const queue = [];
-  let running;
+  let running, stopped = false;
 
   function view(job) {
-    const result = { id: job.id, status: job.status };
+    const result = { id: job.id, status: job.status, ...(job.agent ? {agent:job.agent} : {}) };
     if (job.status === 'queued') result.position = queue.indexOf(job) + 1;
-    if (job.status === 'completed') result.result = job.result;
+    if (job.status === 'completed') {
+      result.result = job.result;
+      if (job.usage) result.usage = job.usage;
+      if (job.warnings?.length) result.warnings = job.warnings;
+      if (job.provenance) result.provenance = job.provenance;
+    }
     if (job.status === 'failed') result.error = job.error;
     return result;
   }
@@ -36,16 +41,19 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
     }
   }
   async function next() {
-    if (running || !queue.length) return;
+    if (stopped || running || !queue.length) return;
     const job = running = queue.shift();
     job.status = 'running';
     job.controller = new AbortController();
     try {
-      job.result = await run(job.body, job.controller.signal);
+      const output = await run(job.body, job.controller.signal, job.id);
+      if (job.controller.signal.aborted) throw new ApiError(499, 'cancelled', 'Review cancelled.');
+      if (job.agent) {job.result = output.result; job.usage = output.usage; job.warnings = output.warnings; job.provenance = output.provenance;}
+      else job.result = output;
       job.status = 'completed';
       job.finishedAt = now();
     } catch (error) {
-      fail(job, job.abandoned ? new ApiError(499, 'abandoned', 'Review cancelled because nobody checked on it.') : error);
+      fail(job, stopped ? new ApiError(503, 'shutting_down', 'The gateway is restarting.') : job.abandoned ? new ApiError(499, 'abandoned', 'Review cancelled because nobody checked on it.') : error);
     } finally {
       job.body = job.controller = running = undefined;
       next();
@@ -53,20 +61,21 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
   }
 
   return {
-    submit(body) {
+    submit(body, {owner, agent} = {}) {
+      if (stopped) throw new ApiError(503, 'shutting_down', 'The gateway is restarting.');
       prune();
       if (queue.length >= limits.waiting) throw new ApiError(429, 'queue_full', 'Too many reviews are waiting. Try again later.');
-      const job = { id: randomUUID(), status: 'queued', body, checkedAt: now() };
+      const job = { id: randomUUID(), status: 'queued', body, owner, agent, checkedAt: now() };
       jobs.set(job.id, job);
       queue.push(job);
       setImmediate(next);
       return view(job);
     },
-    get(id) {
+    get(id, owner) {
       if (!ID.test(id || '')) throw new ApiError(400, 'invalid_job', 'Provide a review job ID.');
       prune();
       const job = jobs.get(id);
-      if (!job) throw new ApiError(404, 'job_not_found', 'Review job not found or expired.');
+      if (!job || job.owner !== owner) throw new ApiError(404, 'job_not_found', 'Review job not found or expired.');
       job.checkedAt = now();
       return view(job);
     },
@@ -85,7 +94,8 @@ export function createReviewJobs(run, { now = Date.now, limits = JOB_LIMITS } = 
       prune();
     },
     stop() {
-      for (const job of queue.splice(0)) fail(job, new ApiError(503, 'shutting_down', 'The gateway is restarting.'));
+      stopped = true;
+      for (const job of queue.splice(0)) { job.body = undefined; fail(job, new ApiError(503, 'shutting_down', 'The gateway is restarting.')); }
       running?.controller.abort();
     },
   };

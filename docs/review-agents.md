@@ -19,3 +19,13 @@ Open **Manage review agents** from the dashboard through the authenticated owner
 Create skills, then agents, then projects. Choose allowed agents per project, and use a fine-grained GitHub token with Contents: read on that repository for private source. Leave the token blank during edits to retain it, or select Remove saved token. Changing repositories clears the token unless a replacement is supplied. Project creation and rotation return a key once; copy it into CI secrets before dismissing it. Rotation immediately revokes the old key.
 
 Desktop and mobile demo screenshots use synthetic project data: [agents](review-agents/portal-agents.png), [projects on mobile](review-agents/portal-projects-mobile.png). Browser validation exercised agent editing/saving, tab switching, and a 390px layout without horizontal overflow. HTTP tests cover access boundaries, reference deletion, rotation and secret redaction.
+
+## Project job API
+
+`POST /ci/review` requires a project Bearer key, no Origin header, and `Prefer: respond-async`. Send `agent`, exact `repository`, full 40-hex `commit`, optional full `base`, 1–100 text `messages` ending in a nonempty user message, and optional OpenAI-style `response_format` JSON schema. Limits are 400,000 message characters and 640 KB body. Agent settings choose the model; request-level model or stream fields are rejected.
+
+The 202 response includes `id`, `agent`, queue status and a `Location` for polling. `GET /ci/review?agents` lists only that project's allowed agents, without instructions. `GET /ci/review?job=<id>` returns queued/running/completed/failed state, with a chat-completion `result` and safe usage metadata only on completion. Poll more often than every two minutes; abandoned work is cancelled. Legacy and new asynchronous reviews share one queue with four waiting slots.
+
+Jobs belong to the submitting credential generation. Rotation or deleting/recreating a project prevents access to previous jobs, even with a reused project name; rotate outside active runs. Unauthorized polling cannot extend a job's lifetime. Queued requests retain a snapshot of instructions, skill contents, source revisions and selected model. A failed, aborted or unfinished execution never becomes a successful job. Clients still need to validate review completeness and findings independently.
+
+Until a verified sandbox runner is configured, submissions return `503 sandbox_unavailable`. Listing and management work independently. There is no host-tool or text-only fallback for the new route.

@@ -415,6 +415,54 @@ test('only the authenticated review route accepts the bounded larger conversatio
   assert.equal(calls.length, 1);
 });
 
+test('full-context review is explicitly selected, schema-constrained and isolated from legacy routes', async t => {
+  const seen = [];
+  const {url, config} = await fixture(t, {complete: async (body, options) => {seen.push({body,options}); return '{"ok":true}';}});
+  config.reviewKey = 'slice_ci_' + 'd'.repeat(64);
+  const fullHeaders = {...headers, authorization: 'Bearer '+config.reviewKey, 'x-review-mode':'full-context-v1'};
+  const schema = {type:'object',properties:{ok:{type:'boolean'}},required:['ok'],additionalProperties:false};
+  const body = {model:'claude/claude-opus-5-5[1m]',messages:[{role:'user',content:'x'.repeat(1_300_000)}],json_schema:schema};
+  const send = (value, h=fullHeaders, route='/ci/slice/review') => fetch(url+route,{method:'POST',headers:h,body:JSON.stringify(value)});
+  assert.equal((await send(body)).status,200);
+  assert.deepEqual(seen[0].options.jsonSchema,schema);
+  assert.equal(seen[0].options.timeoutMs,900_000);
+  for(const bad of [{...body,json_schema:undefined},{...body,json_schema:{type:'object',properties:{x:{$ref:'file:///private'}}}},{...body,model:'claude/opus'},{...body,tools:[]},{...body,messages:[{role:'user',content:'x'.repeat(2_000_001)}]}])
+    assert.ok([400,413].includes((await send(bad)).status));
+  assert.equal((await send(body,{...fullHeaders,'x-review-mode':'unknown'})).status,400);
+  assert.equal((await send(body,headers,'/v1/chat/completions')).status,413);
+  assert.equal(seen.length,1);
+});
+
+test('structured Claude output is required even when plain text looks valid', () => {
+  const result = structured_output => ({code:0,stderr:'',stdout:JSON.stringify({type:'result',subtype:'success',result:'{"ok":true}',structured_output})});
+  assert.equal(parseProviderResult('claude',result({ok:true}),{requireStructured:true}),'{"ok":true}');
+  for(const value of [undefined,null,'{"ok":true}',[]]) assert.throws(()=>parseProviderResult('claude',result(value),{requireStructured:true}));
+});
+
+test('structured review passes schema to isolated Claude and uses its validated object', async t => {
+  const directory=await mkdtemp(path.join(os.tmpdir(),'structured-provider-'));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  const config=await loadConfig({APP_DATA_DIR:directory});
+  let invocation;
+  const providers=createProviders(config,async(command,args,options)=>{
+    if(args[0]==='auth')return {code:0,stdout:'{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}',stderr:''};
+    if(args[0]==='login')return {code:0,stdout:'Logged in using ChatGPT',stderr:''};
+    invocation={args,options};
+    return {code:0,stderr:'',stdout:'{"type":"result","subtype":"success","result":"unvalidated text","structured_output":{"ok":true}}'};
+  });
+  const schema={type:'object',properties:{ok:{type:'boolean'}},required:['ok']};
+  assert.equal(await providers.complete({model:'claude/claude-opus-5-5[1m]',messages:payload.messages},{jsonSchema:schema,reasoningEffort:'high',timeoutMs:900000}),'{"ok":true}');
+  assert.deepEqual(JSON.parse(invocation.args[invocation.args.indexOf('--json-schema')+1]),schema);
+  assert.equal(invocation.args[invocation.args.indexOf('--tools')+1],'');
+  assert.equal(invocation.args[invocation.args.indexOf('--model')+1],'claude-opus-5-5[1m]');
+  assert.equal(invocation.options.timeoutMs,900000);
+  assert.equal(invocation.options.input,'[user]\nHello');
+});
+
+test('provider context overflow is classified without leaking provider output', () => {
+  assert.throws(() => parseProviderResult('claude', {code: 1, stdout: '{"terminal_reason":"prompt_too_long","result":"private"}', stderr: ''}), error => error.status === 413 && error.code === 'provider_context_limit' && !error.message.includes('private'));
+});
+
 test('review requests can carry a JSON schema that Claude enforces', async t => {
   const schema = { type: 'object', additionalProperties: false, required: ['status'], properties: { status: { type: 'string', maxLength: 20 } } };
   const format = { type: 'json_schema', json_schema: { name: 'slice_review', schema } };

@@ -29,8 +29,23 @@ function launcherOwner(req, config) {
     && req.headers['cf-access-authenticated-user-email'] === config.ownerEmail;
 }
 // The CI review route alone accepts a larger bounded conversation; the personal API keeps the smaller limits.
-// Characters stay well under a 200K-token context; the CLI selects 1M only for explicit [1m] models.
+// Character bounds limit transport size, not token usage; extended context requires explicit opt-in.
 const REVIEW_LIMITS = { bodyBytes: 640_000, characters: 400_000, timeoutMs: 300_000 };
+const FULL_REVIEW_LIMITS = { bodyBytes: 3_000_000, characters: 2_000_000, timeoutMs: 900_000 };
+function reviewSchema(schema) {
+  if (!schema || schema.type !== 'object' || Array.isArray(schema) || Buffer.byteLength(JSON.stringify(schema)) > 16_000)
+    throw new ApiError(400, 'invalid_schema', 'Provide a bounded object JSON Schema.');
+  const visit = (value, depth = 0) => {
+    if (depth > 20) throw new ApiError(400, 'invalid_schema', 'Schema nesting exceeds limit.');
+    if (!value || typeof value !== 'object') return;
+    for (const [key, child] of Object.entries(value)) {
+      if (['$ref', '$dynamicRef', '$recursiveRef'].includes(key)) throw new ApiError(400, 'invalid_schema', 'Schema references are unsupported.');
+      visit(child, depth + 1);
+    }
+  };
+  visit(schema);
+  return schema;
+}
 async function readBody(req, maxBytes = 256_000) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw new ApiError(415, 'invalid_content_type', 'Send Content-Type: application/json.');
   const chunks = []; let size = 0;
@@ -51,7 +66,11 @@ function apiResult(model, text, id, created) {
 
 export function createServer(config, providers, { reviewJobs } = {}) {
   const requests = new Set();
-  const reviewText = (body, signal) => providers.complete(body, { signal, reasoningEffort: 'high', timeoutMs: REVIEW_LIMITS.timeoutMs });
+  const reviewText = (body, signal) => providers.complete(body, {
+    signal, reasoningEffort: 'high',
+    timeoutMs: body.json_schema ? FULL_REVIEW_LIMITS.timeoutMs : REVIEW_LIMITS.timeoutMs,
+    ...(body.json_schema ? { jsonSchema: body.json_schema } : {}),
+  });
   const jobs = reviewJobs || createReviewJobs(async (body, signal) =>
     apiResult(body.model, await reviewText(body, signal), 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
   const sweeper = setInterval(() => jobs.sweep(), 15_000);
@@ -84,8 +103,20 @@ export function createServer(config, providers, { reviewJobs } = {}) {
         if (req.headers.origin) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
         if (req.method === 'GET') return json(res, 200, jobs.get(url.searchParams.get('job')));
         if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST to submit or GET to check a review job.');
-        const body = validateRequest(await readBody(req, REVIEW_LIMITS.bodyBytes), REVIEW_LIMITS.characters, { responseFormat: true });
-        if (body.model !== 'claude/claude-opus-5-5' || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
+        const mode = req.headers['x-review-mode'];
+        if (mode !== undefined && mode !== 'full-context-v1') throw new ApiError(400, 'unsupported_review_mode', 'Unknown review mode.');
+        const full = mode === 'full-context-v1';
+        const limits = full ? FULL_REVIEW_LIMITS : REVIEW_LIMITS;
+        const raw = await readBody(req, limits.bodyBytes);
+        let schema;
+        if (full) {
+          schema = reviewSchema(raw?.json_schema);
+          delete raw.json_schema;
+        }
+        const body = validateRequest(raw, limits.characters, {responseFormat: !full});
+        const expectedModel = full ? 'claude/claude-opus-5-5[1m]' : 'claude/claude-opus-5-5';
+        if (body.model !== expectedModel || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
+        if (full) body.json_schema = schema;
         // `Prefer: respond-async` queues a job and returns at once. Without it the request waits,
         // which only suits reviews that finish before the public proxy's timeout.
         if (/(^|[\s,])respond-async($|[\s,;])/i.test(req.headers.prefer || '')) {

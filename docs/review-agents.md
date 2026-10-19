@@ -32,7 +32,7 @@ Until a verified sandbox runner is configured, submissions return `503 sandbox_u
 
 ## Sandbox candidate — validation pending
 
-The sandbox implementation is available behind an explicit `REVIEW_IMAGE_DIGEST` setting, unset by default. **Do not enable it yet:** live subscription inference hit `subscription_limit` on October 19, 2026. The complete skill invocation, outside-read denial, structured completion and representative review acceptance checks remain pending. Personal provider live compatibility also remains pending; deterministic compatibility tests pass.
+The sandbox implementation is available behind an explicit `REVIEW_IMAGE_DIGEST` setting, unset by default. **Do not enable it yet:** live subscription inference hit `subscription_limit` on October 19, 2026. The complete skill invocation, outside-read denial, structured completion and representative review acceptance checks remain pending. Personal Claude live compatibility remains pending; the candidate ChatGPT provider passed a harmless live request, and deterministic compatibility tests pass.
 
 Build with `npm run sandbox:build`. `npm run sandbox:smoke -- --offline` validates real Docker network isolation, read-only mounts, host canary isolation, selected skill loading and repository skill exclusion using a dummy OAuth value; it makes no inference request. Its checked [result](review-agents/smoke-offline.json) is not a completed live review. `npm run sandbox:smoke` additionally requires `CLAUDE_OAUTH_TOKEN_FILE` and fails unless skill invocation, head/base reads, explicit outside-read denial, schema output, usage and warnings all pass. The smoke fixture supplements a pinned tiny public repository with synthetic test files.
 

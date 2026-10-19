@@ -113,7 +113,7 @@ export function createServer(config, providers, { reviewJobs } = {}) {
           schema = reviewSchema(raw?.json_schema);
           delete raw.json_schema;
         }
-        const body = validateRequest(raw, limits.characters);
+        const body = validateRequest(raw, limits.characters, {responseFormat: !full});
         const expectedModel = full ? 'claude/claude-opus-5-5[1m]' : 'claude/claude-opus-5-5';
         if (body.model !== expectedModel || body.stream === true) throw new ApiError(400, 'unsupported_review_request', 'Review requires the fixed Claude Opus 5.5 route and a non-streaming request.');
         if (full) body.json_schema = schema;

@@ -28,7 +28,7 @@ const codexDisabledFeatures = [
   'worktrees', 'tool_suggest', 'auth_elicitation', 'daemon_auto_start', 'request_permissions_tool',
 ];
 
-export function providerCommand(provider, config, model = defaultModels(config)[provider], reasoningEffort) {
+export function providerCommand(provider, config, model = defaultModels(config)[provider], reasoningEffort, jsonSchema) {
   if (provider === 'chatgpt') return {
     command: config.codexBin,
     args: ['exec', '--ignore-user-config', '--ignore-rules', '--ephemeral', '--skip-git-repo-check',
@@ -48,13 +48,16 @@ export function providerCommand(provider, config, model = defaultModels(config)[
       '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
       '--output-format', 'json', '--model', model,
       ...(reasoningEffort === 'high' ? ['--effort', 'high', '--settings', JSON.stringify({ switchModelsOnFlag: false })] : []),
+      // Claude checks its answer against this schema and returns it as structured output.
+      ...(jsonSchema ? ['--json-schema', JSON.stringify(jsonSchema)] : []),
       '--system-prompt', 'You are a helpful text assistant. Respond to the supplied conversation. You have no tools.'],
   };
 }
 
-export function validateRequest(body, maxCharacters = 100_000) {
+export function validateRequest(body, maxCharacters = 100_000, { responseFormat = false } = {}) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400, 'invalid_request', 'Send a JSON object.');
-  const unsupported = Object.keys(body).filter(key => !['model', 'messages', 'stream'].includes(key));
+  const allowed = responseFormat ? ['model', 'messages', 'stream', 'response_format'] : ['model', 'messages', 'stream'];
+  const unsupported = Object.keys(body).filter(key => !allowed.includes(key));
   if (unsupported.length) throw new ApiError(400, 'unsupported_parameter', 'Supported fields are model, messages, and stream. Tool calls, sampling controls, and token limits are not supported.');
   resolveModel(body.model, {});
   if (body.stream !== undefined && typeof body.stream !== 'boolean') throw new ApiError(400, 'invalid_stream', 'stream must be a boolean.');
@@ -69,24 +72,42 @@ export function validateRequest(body, maxCharacters = 100_000) {
   }
   if (total > maxCharacters) throw new ApiError(413, 'prompt_too_large', 'Conversation exceeds the character limit.');
   if (body.messages.at(-1).role !== 'user' || !body.messages.at(-1).content.trim()) throw new ApiError(400, 'invalid_messages', 'End the conversation with a nonempty user message.');
+  if (body.response_format !== undefined) jsonSchemaOf(body);
   return body;
+}
+
+// OpenAI-style `response_format: { type: 'json_schema', json_schema: { name?, schema } }`, bounded in size.
+export function jsonSchemaOf(body) {
+  const format = body.response_format;
+  if (format === undefined) return undefined;
+  const schema = format?.json_schema?.schema;
+  if (!format || typeof format !== 'object' || Array.isArray(format) || format.type !== 'json_schema'
+    || Object.keys(format).some(key => !['type', 'json_schema'].includes(key))
+    || !format.json_schema || typeof format.json_schema !== 'object'
+    || Object.keys(format.json_schema).some(key => !['name', 'schema', 'strict'].includes(key))
+    || !schema || typeof schema !== 'object' || Array.isArray(schema) || schema.type !== 'object'
+    || JSON.stringify(schema).length > 20_000) {
+    throw new ApiError(400, 'invalid_response_format', 'response_format must be a json_schema object schema under 20,000 characters.');
+  }
+  return schema;
 }
 
 export function conversationPrompt(messages) {
   return 'Answer the final user message in this JSON conversation. Earlier entries provide context. Return only the assistant reply, not a JSON wrapper.\n\n' + JSON.stringify(messages);
 }
 
-export function parseProviderResult(provider, result, structured = false) {
+export function parseProviderResult(provider, result, { structured = false, requireStructured = false } = {}) {
   let text;
   let failed = result.code !== 0;
   try {
     if (provider === 'claude') {
       const data = JSON.parse(result.stdout);
       failed ||= data.is_error === true || data.type !== 'result' || data.subtype !== 'success';
-      text = structured
+      // With a schema, the CLI also returns the checked object; prefer it over the free text.
+      text = requireStructured
         ? (data.structured_output && typeof data.structured_output === 'object' && !Array.isArray(data.structured_output)
           ? JSON.stringify(data.structured_output) : undefined)
-        : data.result;
+        : structured && data.structured_output !== undefined ? JSON.stringify(data.structured_output) : data.result;
     } else {
       const events = result.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
       failed ||= events.some(event => ['error', 'turn.failed'].includes(event.type));
@@ -129,7 +150,8 @@ export function createProviders(config, run = runProcess) {
     }).finally(() => { statusPending = undefined; });
     return statusPending;
   }
-  async function complete(body, { signal, reasoningEffort, timeoutMs = config.timeoutMs, jsonSchema } = {}) {
+  async function complete(body, { signal, reasoningEffort, timeoutMs = config.timeoutMs, jsonSchema: requiredSchema } = {}) {
+    const jsonSchema = requiredSchema ?? jsonSchemaOf(body);
     const { provider, model } = resolveModel(body.model, config);
     if (active.has(provider)) throw new ApiError(429, 'provider_busy', 'This provider is handling another request. Try again shortly.');
     active.add(provider);
@@ -139,18 +161,15 @@ export function createProviders(config, run = runProcess) {
       if (!current?.connected) throw new ApiError(503, 'sign_in_required', 'Sign in to this provider on the Mac mini, then refresh connection status.');
       if (signal?.aborted) throw new ApiError(499, 'cancelled', 'Request cancelled.');
       directory = await mkdtemp(path.join(config.workDir, 'request-'));
-      const invocation = providerCommand(provider, config, model, reasoningEffort);
-      if (jsonSchema) {
-        if (provider !== 'claude') throw new ApiError(400, 'unsupported_schema', 'Structured review requires Claude.');
-        invocation.args.push('--json-schema', JSON.stringify(jsonSchema));
-      }
+      if (jsonSchema && provider !== 'claude') throw new ApiError(400, 'unsupported_response_format', 'Structured output is available only for Claude.');
+      const invocation = providerCommand(provider, config, model, reasoningEffort, jsonSchema);
       const result = await run(invocation.command, invocation.args, {
-        cwd: directory, input: jsonSchema
-          ? body.messages.map(message => `[${message.role}]\n${message.content}`).join("\n\n")
+        cwd: directory, input: requiredSchema
+          ? body.messages.map(message => `[${message.role}]\n${message.content}`).join('\n\n')
           : conversationPrompt(body.messages), signal,
         timeoutMs, env: await providerEnvironment(provider, config),
       });
-      return parseProviderResult(provider, result, Boolean(jsonSchema));
+      return parseProviderResult(provider, result, { structured: Boolean(jsonSchema), requireStructured: Boolean(requiredSchema) });
     } finally {
       active.delete(provider);
       if (directory) await rm(directory, { recursive: true, force: true });

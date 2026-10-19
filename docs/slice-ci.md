@@ -8,6 +8,10 @@ Target repository: `sliceconsultingsu/slice-launcher`. The requester is its prot
 
 Requests use the usual text `model`/`messages`/optional `stream` shape, but the model must be exactly `claude/claude-opus-5-5` and streaming must be off. Browser Origin headers are rejected. The provider requests High reasoning and disables automatic model switching on flagged requests; arbitrary request fields and model changes are rejected before execution. The authenticated review route accepts at most 400,000 conversation characters within a 640,000-byte JSON body limit (kept well under a 200K-token context), and allows 300 seconds of inference. The personal API retains its 100,000-character, 256 KB and 90-second limits. A long review holds the single Claude slot for up to five minutes, so personal Claude requests may report busy meanwhile.
 
+### Structured review output
+
+The review route alone also accepts an OpenAI-style `response_format`: `{ "type": "json_schema", "json_schema": { "name": "...", "schema": { "type": "object", ... } } }`, with the schema under 20,000 characters. The gateway passes the schema to the Claude CLI with `--json-schema`, so Claude checks its answer against it (including `maxLength` limits), and returns the CLI's `structured_output` as the message content: plain JSON, with no Markdown fences. Without `response_format`, replies are free text as before. The personal API still rejects the field, and other providers refuse it with `unsupported_response_format`.
+
 ### Review jobs
 
 Cloudflare ends a proxied request that gets no response within about two minutes (its default Proxy Read Timeout is 125 seconds), so long reviews run as jobs:

@@ -414,3 +414,55 @@ test('only the authenticated review route accepts the bounded larger conversatio
   assert.equal((await fetch(url + '/v1/chat/completions', { method: 'POST', headers, body: body(100_001) })).status, 413);
   assert.equal(calls.length, 1);
 });
+
+test('review requests can carry a JSON schema that Claude enforces', async t => {
+  const schema = { type: 'object', additionalProperties: false, required: ['status'], properties: { status: { type: 'string', maxLength: 20 } } };
+  const format = { type: 'json_schema', json_schema: { name: 'slice_review', schema } };
+  const body = { model: 'claude/claude-opus-5-5', messages: [{ role: 'user', content: 'review' }], response_format: format };
+  assert.throws(() => validateRequest(body), error => error.code === 'unsupported_parameter');
+  assert.equal(validateRequest(body, 200_000, { responseFormat: true }), body);
+  for (const bad of [
+    { type: 'text' },
+    { type: 'json_schema' },
+    { type: 'json_schema', json_schema: { schema: [] } },
+    { type: 'json_schema', json_schema: { schema: { type: 'array' } } },
+    { type: 'json_schema', json_schema: { schema, extra: true } },
+    { type: 'json_schema', json_schema: { schema: { type: 'object', description: 'x'.repeat(20_001) } } },
+  ]) {
+    assert.throws(() => validateRequest({ ...body, response_format: bad }, 200_000, { responseFormat: true }), error => error.code === 'invalid_response_format');
+  }
+  const args = providerCommand('claude', {}, 'claude-opus-5-5', 'high', schema).args;
+  assert.deepEqual(JSON.parse(args[args.indexOf('--json-schema') + 1]), schema);
+  assert.ok(!providerCommand('claude', {}, 'claude-opus-5-5', 'high').args.includes('--json-schema'));
+
+  const stdout = JSON.stringify({ type: 'result', subtype: 'success', result: '```json\n{"status":"x"}\n```', structured_output: { status: 'completed' } });
+  assert.equal(parseProviderResult('claude', { code: 0, stdout, stderr: '' }, { structured: true }), '{"status":"completed"}');
+  assert.equal(parseProviderResult('claude', { code: 0, stdout, stderr: '' }), '```json\n{"status":"x"}\n```');
+  const plain = JSON.stringify({ type: 'result', subtype: 'success', result: '{"status":"completed"}' });
+  assert.equal(parseProviderResult('claude', { code: 0, stdout: plain, stderr: '' }, { structured: true }), '{"status":"completed"}');
+
+  const seen = [];
+  const { url, config } = await fixture(t, { complete: async (received, options) => { seen.push({ received, options }); return '{"status":"completed"}'; } });
+  config.reviewKey = 'slice_ci_' + 'd'.repeat(64);
+  const reviewHeaders = { 'content-type': 'application/json', authorization: 'Bearer ' + config.reviewKey };
+  assert.equal((await fetch(url + '/ci/slice/review', { method: 'POST', headers: reviewHeaders, body: JSON.stringify(body) })).status, 200);
+  assert.deepEqual(seen[0].received.response_format, format);
+  assert.equal((await fetch(url + '/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify({ ...body, model: 'claude' }) })).status, 400);
+  assert.equal(seen.length, 1);
+});
+
+test('structured output is refused for providers that cannot enforce it', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'subscription-schema-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const config = await loadConfig({ APP_DATA_DIR: directory });
+  let executed = 0;
+  const providers = createProviders(config, async (command, args) => {
+    if (args[0] === 'login') return { code: 0, stdout: 'Logged in using ChatGPT', stderr: '' };
+    if (args[0] === 'auth') return { code: 0, stdout: '{"loggedIn":true,"authMethod":"claude.ai","apiProvider":"firstParty"}', stderr: '' };
+    executed++;
+    return { code: 0, stderr: '', stdout: '' };
+  });
+  const format = { type: 'json_schema', json_schema: { schema: { type: 'object' } } };
+  await assert.rejects(providers.complete({ ...payload, model: 'chatgpt', response_format: format }), error => error.code === 'unsupported_response_format');
+  assert.equal(executed, 0);
+});

@@ -93,15 +93,15 @@ try{
   assert.deepEqual(JSON.parse(result.result.choices[0].message.content),{canary:'SOURCE_CANARY_4912',outsideDenied:true});
   assert.ok(result.usage.toolSteps>0);assert.ok(result.warnings.includes('possible_prompt_injection'));manifest.usage=result.usage;manifest.completed=true;
 }catch(error){
+  if(offline&&error.code==='smoke_startup_complete'&&networkChecked&&initialized&&selectedSkill&&repoSkillExcluded)manifest.completed=true;
+  else {manifest.completed=false;manifest.failureCode=error instanceof ApiError?error.code:'smoke_assertion_failed';process.exitCode=1;}
+}finally{
   manifest.assertions={networkChecked,initialized,selectedSkill,repoSkillExcluded,
     skillInvoked:toolUses.some(t=>t.name==='Skill'&&t.input.skill==='review-skills:probe'),
     headRead:toolUses.some(t=>t.name==='Read'&&t.input.file_path==='/repo/review-probe.txt'),
     baseRead:toolUses.some(t=>t.name==='Read'&&t.input.file_path==='/base/review-probe.txt'),
     outsideAttempted:toolUses.some(t=>t.name==='Read'&&t.input.file_path==='/etc/passwd'),
     outsideDenied:permissionDenials.some(t=>t.tool_name==='Read'&&t.tool_input?.file_path==='/etc/passwd')};
-  if(offline&&error.code==='smoke_startup_complete'&&networkChecked&&initialized&&selectedSkill&&repoSkillExcluded)manifest.completed=true;
-  else {manifest.completed=false;manifest.failureCode=error instanceof ApiError?error.code:'smoke_assertion_failed';process.exitCode=1;}
-}finally{
   await rm(workDir,{recursive:true,force:true});process.removeListener('SIGINT',interrupt);process.removeListener('SIGTERM',interrupt);
   console.log(JSON.stringify(manifest,null,2));
 }

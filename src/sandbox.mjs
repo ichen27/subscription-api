@@ -33,6 +33,12 @@ export function reviewStream(maxSteps, structured = false, selectedSkills = []){
       if(!available.includes(item.name)||typeof item.id!=='string')throw new ApiError(503,'sandbox_failed','The review CLI requested an unexpected tool.');
       if(item.name==='Skill'&&!selectedSkills.some(id=>item.input?.skill==='review-skills:'+id))throw new ApiError(503,'sandbox_failed','The review requested an unselected skill.');
       if(['Read','Grep','Glob'].includes(item.name)) {
+        // Glob's pattern and Grep's glob filter are path-bearing inputs too.
+        // Do not let an absolute/parent pattern evade the separate path check.
+        const glob=item.name==='Glob'?item.input?.pattern:item.name==='Grep'?item.input?.glob:undefined;
+        if(glob!==undefined&&(typeof glob!=='string'||/[\\\x00-\x1f]/.test(glob)||
+          /(^|[{,])[/~]|(^|[/{,])\.\.(?:[/},]|$)/.test(glob)))
+          throw new ApiError(503,'sandbox_path_rejected','The review requested an unsafe source pattern.');
         const supplied=item.name==='Read'?item.input?.file_path:item.input?.path;
         const resolved=typeof supplied==='string'?path.posix.resolve('/workspace',supplied):'/workspace';
         if(!['/repo','/base','/skills','/workspace'].some(root=>resolved===root||resolved.startsWith(root+'/')))

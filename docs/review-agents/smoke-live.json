@@ -23,9 +23,20 @@
   "selectedSkill": true,
   "repoSkillExcluded": true,
   "usage": {
-    "durationMs": 18298,
+    "durationMs": 17054,
     "toolSteps": 4,
     "effort": "low"
   },
-  "completed": true
+  "completed": true,
+  "assertions": {
+    "networkChecked": true,
+    "initialized": true,
+    "selectedSkill": true,
+    "repoSkillExcluded": true,
+    "skillInvoked": true,
+    "headRead": true,
+    "baseRead": true,
+    "outsideAttempted": true,
+    "outsideDenied": true
+  }
 }

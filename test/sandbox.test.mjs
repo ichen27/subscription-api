@@ -84,8 +84,14 @@ test('stale runtime recovery admits only one concurrent initializer',async t=>{
   assert.equal(results.filter(r=>r.status==='fulfilled').length,1);await results.find(r=>r.status==='fulfilled').value();
 });
 test('execution event validation rejects source path escapes and unselected skills',()=>{
-  for(const [name,input]of [['Read',{file_path:'/proc/self/environ'}],['Grep',{path:'/repo/../../etc'}],['Glob',{path:'/home/reviewer'}],['Skill',{skill:'code-review'}]]){
+  for(const [name,input]of [['Read',{file_path:'/proc/self/environ'}],['Grep',{path:'/repo/../../etc'}],['Glob',{path:'/home/reviewer'}],['Glob',{path:'/repo',pattern:'/etc/*'}],['Glob',{path:'/repo',pattern:'{src,../../etc}/**'}],['Grep',{path:'/repo',glob:'../secret/**'}],['Skill',{skill:'code-review'}]]){
     const s=reviewStream(20,true);s.write(initial);
     assert.throws(()=>s.write(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:'unsafe',name,input}]}})+'\n'),e=>['sandbox_path_rejected','sandbox_failed'].includes(e.code));
   }
+});
+test('source-relative glob patterns remain available',()=>{
+  const s=reviewStream(20,true);s.write(initial);
+  for(const [name,input]of [['Glob',{path:'/repo',pattern:'src/**/*.{js,mjs}'}],['Grep',{path:'/repo',glob:'**/*.mjs',pattern:'function'}]])
+    s.write(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:name,name,input}]}})+'\n');
+  s.write(success);assert.equal(s.finish().toolSteps,2);
 });

@@ -1,0 +1,6 @@
+*
+!sandbox/
+!sandbox/Dockerfile
+!sandbox/managed-settings.json
+!src/
+!src/egress-proxy.mjs

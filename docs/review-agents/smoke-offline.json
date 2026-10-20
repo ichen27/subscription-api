@@ -1,0 +1,26 @@
+{
+  "cliVersion": "2.1.301",
+  "image": "sha256:6e5c41d107529e69590a3b0a96dfdd825531c90e5c1c2ac48e37ef1e94fa08d7",
+  "mode": "offline",
+  "network": {
+    "example": "HTTP/1.1 403 Forbidden",
+    "github": "HTTP/1.1 403 Forbidden",
+    "inference": "HTTP/1.1 200 Connection Established",
+    "direct": "blocked",
+    "host": "blocked",
+    "dns": "blocked",
+    "noHostCanary": true,
+    "noCredentials": true,
+    "readOnly": true
+  },
+  "tools": [
+    "Glob",
+    "Grep",
+    "Read",
+    "Skill",
+    "StructuredOutput"
+  ],
+  "selectedSkill": true,
+  "repoSkillExcluded": true,
+  "completed": true
+}

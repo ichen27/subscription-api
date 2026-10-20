@@ -144,3 +144,13 @@ test('cancellation cannot become a successful late completion and stopped queues
   const job=jobs.submit({});await tick();jobs.stop();runs[0].resolve({});await tick();
   assert.equal(jobs.get(job.id).error.code,'shutting_down');assert.throws(()=>jobs.submit({}),error=>error.code==='shutting_down');
 });
+
+test('shutdown drain waits for asynchronous runner cleanup',async()=>{
+  let finishCleanup,aborted=false;
+  const jobs=createReviewJobs((_body,signal)=>new Promise((resolve,reject)=>{
+    signal.addEventListener('abort',()=>{aborted=true;finishCleanup=()=>reject(new ApiError(499,'cancelled','Stopped after cleanup'));});
+  }));
+  const job=jobs.submit({});await tick();let drained=false;const drain=jobs.stop().then(()=>{drained=true;});
+  await tick();assert.equal(aborted,true);assert.equal(drained,false);finishCleanup();await drain;
+  assert.equal(drained,true);assert.equal(jobs.get(job.id).error.code,'shutting_down');
+});

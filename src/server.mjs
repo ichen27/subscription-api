@@ -249,9 +249,10 @@ export function createServer(config, providers, { reviewJobs, reviewRunner } = {
   server.headersTimeout = 10_000;
   server.stop = () => {
     clearInterval(sweeper);
-    jobs.stop();
+    const drained = jobs.stop();
     for (const controller of requests) controller.abort();
-    server.close(); server.closeIdleConnections();
+    const closed = new Promise(resolve => server.close(resolve)); server.closeIdleConnections();
+    return Promise.all([drained, closed]);
   };
   return server;
 }

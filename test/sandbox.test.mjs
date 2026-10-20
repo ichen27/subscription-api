@@ -1,19 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm,readdir,mkdir,writeFile} from 'node:fs/promises';
+import {mkdtemp,rm,readdir,mkdir,writeFile,stat,symlink} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {ApiError} from '../src/errors.mjs';
-import {createSandbox,reviewArguments,reviewStream,injectionWarning} from '../src/sandbox.mjs';
+import {createSandbox,reviewArguments,reviewStream,injectionWarning,prepareReadOnlyTree} from '../src/sandbox.mjs';
 const agent={name:'general',model:'opus',effort:'high',instructions:'Trace callers',timeLimitSeconds:60,maxToolSteps:10};
 const spec={revision:1,project:'project',repository:'owner/repo',commit:'a'.repeat(40),base:'b'.repeat(40),githubToken:'HOST_ONLY_TOKEN',agent,skills:[],messages:[{role:'user',content:'Review this source'}],schema:{type:'object',properties:{ok:{type:'boolean'}}}};
 const initial=JSON.stringify({type:'system',subtype:'init',claude_code_version:'2.1.301',mcp_servers:[],tools:['Read','Grep','Glob','Skill','StructuredOutput']})+'\n';
 const success=JSON.stringify({type:'result',subtype:'success',is_error:false,structured_output:{ok:true},num_turns:7})+'\n';
-async function fixture(t,{failure}={}){
+async function fixture(t,{failure,readinessFailure}={}){
   const workDir=await mkdtemp(path.join(os.tmpdir(),'review-sandbox-'));t.after(()=>rm(workDir,{recursive:true,force:true}));
   const calls=[],downloads=[];
   const runner=createSandbox({workDir,reviewImage:'sha256:'+'a'.repeat(64)},{environment:async()=>({CLAUDE_CODE_OAUTH_TOKEN:'SUBSCRIPTION_ONLY',GITHUB_TOKEN:'DO_NOT_PASS'}),download:async(repository,commit,token,dir)=>{downloads.push({repository,commit,token});await mkdir(dir,{recursive:true});await writeFile(path.join(dir,'code.js'),'source');},run:async(command,args,options)=>{
     calls.push({command,args,options});
+    if(args[0]==='exec'&&readinessFailure)return {code:1,stdout:'',stderr:''};
     if(args[0]==='run'){
       if(failure)throw failure;
       options.onStdout(initial);options.onStdout(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:'one',name:'Read',input:{file_path:'/repo/code.js'}}]}})+'\n');options.onStdout(success);
@@ -27,6 +28,7 @@ test('sandbox pins revisions and image, keeps GitHub tokens outside, and removes
   const {runner,calls,downloads,workDir}=await fixture(t);const output=await runner(spec);
   assert.deepEqual(downloads.map(d=>d.commit),[spec.commit,spec.base]);assert.ok(downloads.every(d=>d.token==='HOST_ONLY_TOKEN'));
   const invocation=calls.find(c=>c.args[0]==='run');assert.equal(invocation.options.env.CLAUDE_CODE_OAUTH_TOKEN,'SUBSCRIPTION_ONLY');assert.equal(invocation.options.env.GITHUB_TOKEN,undefined);assert.doesNotMatch(JSON.stringify(invocation.args),/HOST_ONLY_TOKEN|SUBSCRIPTION_ONLY|DO_NOT_PASS/);
+  assert.ok(calls.findIndex(c=>c.args[0]==='exec')<calls.indexOf(invocation),'proxy readiness must precede inference');
   for(const flag of ['--read-only','--cap-drop','--security-opt','--pids-limit','--memory','--cpus','--dns'])assert.ok(invocation.args.includes(flag));
   assert.ok(invocation.args.some(a=>a.endsWith('target=/base,readonly')));assert.ok(invocation.args.includes('sha256:'+'a'.repeat(64)));
   assert.equal(output.usage.toolSteps,1);assert.equal(output.provenance.commit,spec.commit);assert.deepEqual(JSON.parse(output.result.choices[0].message.content),{ok:true});
@@ -37,6 +39,12 @@ test('sandbox failure and cancellation clean resources without producing a resul
     const {runner,calls,workDir}=await fixture(t,{failure});await assert.rejects(runner(spec),e=>e.code===(failure instanceof ApiError?'agent_step_limit':'sandbox_failed')&&!e.message.includes('PRIVATE'));
     assert.equal(calls.filter(c=>c.args[0]==='rm').length,2);assert.deepEqual(await readdir(workDir),[]);
   }
+});
+test('a proxy that never becomes ready cannot start inference',async t=>{
+  const {runner,calls,workDir}=await fixture(t,{readinessFailure:true});
+  await assert.rejects(runner(spec),e=>e.code==='sandbox_failed');
+  assert.ok(!calls.some(c=>c.args[0]==='run'));
+  assert.deepEqual(await readdir(workDir),[]);
 });
 test('stream validation counts tool uses rather than num_turns and fails at the configured bound',()=>{
   const stream=reviewStream(2,true);stream.write(initial.slice(0,20));stream.write(initial.slice(20));
@@ -94,4 +102,20 @@ test('source-relative glob patterns remain available',()=>{
   for(const [name,input]of [['Glob',{path:'/repo',pattern:'src/**/*.{js,mjs}'}],['Grep',{path:'/repo',glob:'**/*.mjs',pattern:'function'}]])
     s.write(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:name,name,input}]}})+'\n');
   s.write(success);assert.equal(s.finish().toolSteps,2);
+});
+test('private controller permissions do not make source unreadable to the container UID',async t=>{
+  const root=await mkdtemp(path.join(os.tmpdir(),'review-private-modes-'));
+  t.after(()=>rm(root,{recursive:true,force:true}));
+  await mkdir(path.join(root,'repo'),{mode:0o700});
+  await mkdir(path.join(root,'repo/nested'),{mode:0o700});
+  await writeFile(path.join(root,'repo/nested/source.mjs'),'source',{mode:0o400});
+  await writeFile(path.join(root,'credential'),'private',{mode:0o600});
+  await prepareReadOnlyTree(path.join(root,'repo'));
+  assert.equal((await stat(path.join(root,'repo/nested'))).mode&0o777,0o755);
+  assert.equal((await stat(path.join(root,'repo/nested/source.mjs'))).mode&0o777,0o444);
+  assert.equal((await stat(root)).mode&0o777,0o700);
+  assert.equal((await stat(path.join(root,'credential'))).mode&0o777,0o600);
+  await symlink(path.join(root,'credential'),path.join(root,'repo/escape'));
+  await assert.rejects(prepareReadOnlyTree(path.join(root,'repo')),e=>e.code==='sandbox_failed');
+  assert.equal((await stat(path.join(root,'credential'))).mode&0o777,0o600);
 });

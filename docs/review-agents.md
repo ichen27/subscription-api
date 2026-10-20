@@ -1,6 +1,6 @@
 # Review agents
 
-Implementation is staged. The owner portal at `/reviews` manages configuration; the new CI route and container runner are not yet activated. Existing personal and CI text routes are unchanged.
+Implementation is staged. The owner portal at `/reviews` manages configuration; the new gateway CI route is not yet activated. The separate [queued PR worker](queued-pr-agent.md) uses the validated container runtime directly. Existing personal and CI text routes are unchanged.
 
 The private store lives under `APP_DATA_DIR/review/`. `config.json` contains versioned agents, projects and skill references. Project keys are generated once and only their SHA-256 hashes are retained. Public configuration views omit hashes and secret references. `secrets.json` contains versioned GitHub tokens with mode 0600. Tokens are never returned by the portal. Changing a project's repository clears its token unless a replacement is explicitly supplied.
 
@@ -54,3 +54,20 @@ The candidate now limits preapproved reads to absolute source/skill paths, expli
 The live smoke independently tests the CLI permission policy for a deliberate `/etc/passwd` read. Its harness withholds only that known container-path tool event from the additional production observer, then requires the CLI's explicit permission-denial record. Every other event retains production checks. Production never bypasses the observer. The test passes only with a real CLI denial record; a model statement alone does not satisfy it. The smoke prompt explicitly authorizes that one attempted container-file read, while production instructions retain the prohibition and all managed permissions remain enabled.
 
 If initialization fails after an image is configured, the listener can still serve personal requests. A submitted review then fails asynchronously with `sandbox_unavailable`; a missing runner rejects submission immediately. Runtime locks fail closed if a recorded PID is alive, including a reused PID. After confirming no review runtime is active, an operator may repair the stale lock; the service never deletes a lock merely because a process appears unrelated.
+
+## Client request example
+
+[review-request.json](../examples/review-request.json) uses a pinned public fixture and a small output schema. After acceptance and provisioning, submit it with the project key (never the general gateway key):
+
+```sh
+curl --fail-with-body "$REVIEW_ORIGIN/ci/review" \
+  -H "Authorization: Bearer $PROJECT_REVIEW_KEY" \
+  -H "CF-Access-Client-Id: $REVIEW_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $REVIEW_ACCESS_CLIENT_SECRET" \
+  -H 'Prefer: respond-async' -H 'Content-Type: application/json' \
+  --data-binary @examples/review-request.json
+```
+
+Use a fixture project whose repository and allowed agent match the example. Poll the returned job ID at the same trusted origin/path every ten seconds with the same credentials; never forward them to an arbitrary `Location` host. Stop on failed state. Completed transport alone is not a completed review: parse and validate the result, require the client's completion contract, then validate every citation against the pinned diff. Preserve valid partial findings while keeping unresolved/incomplete reports unsuccessful. The job response also includes provenance (configuration revision, source SHAs, selected model, skill digests, image and CLI version); requested model metadata does not attest the upstream model actually used.
+
+Agents allow 60–600 seconds and 10–100 tool steps. Client wait and workflow limits must allow queueing, execution, cleanup and any one output-only repair under a shared deadline. A 600-second agent plus a retry can exceed a 20-minute client deadline even without queueing; use a lower agent limit or explicitly raise both client and workflow limits. Transport failures must not be blindly resubmitted. The gateway does not automatically retry jobs or switch providers.

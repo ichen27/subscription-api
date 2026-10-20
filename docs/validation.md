@@ -50,3 +50,30 @@ No mobile-device browser test was performed. The CSS includes narrow-screen layo
 - The Bash request block in `examples/github-actions-step.yml` passes `bash -n` and ran successfully against the local gateway with `chatgpt/gpt-6-luna`. This verifies the request step, not GitHub networking.
 - Inspected the launcher auth implementation: it requires a signed JWT with the configured owner email. A Cloudflare service token alone is insufficient. Updated the deployment and CI guidance accordingly; no launcher source or Access policy changes were made.
 - No target GitHub repository, CI job purpose, machine network credentials, or live GitHub-to-gateway call is configured for this integration. The YAML artifact is explicitly a step fragment with a network prerequisite.
+
+## Review-agent candidate — historical October 19, 2026 evidence
+
+This evidence concerns the unactivated review-agent branch, not the deployed gateway. The historical checks above do not prove the new sandbox passes live acceptance.
+
+- `npm ci`, all **74 tests**, `npm run check` and `git diff --check` pass. Hosted CI passes on sandbox revision `b137e47`. Tests cover private configuration, atomic snapshots, ZIP/archive validation, owner/project authorization, queue isolation, provider exclusion, scoped tool events, bounds, cancellation, cleanup and concurrent stale-lock recovery. Independent reviews found no remaining actionable findings after repairs.
+- The owner portal was exercised in a synthetic browser session: edit/save, tabs and 390px mobile layout without horizontal overflow. [Desktop](review-agents/portal-agents.png) and [mobile](review-agents/portal-projects-mobile.png) screenshots contain demonstration data.
+- Real Docker offline smoke passed with CLI **2.1.301**, image `sha256:6e5c41d107529e69590a3b0a96dfdd825531c90e5c1c2ac48e37ef1e94fa08d7`. [Machine-readable evidence](review-agents/smoke-offline.json) records mode `offline`; its `completed: true` means the offline checks completed, not inference. Example/GitHub CONNECT denied; inference CONNECT allowed; direct internet, host and arbitrary DNS connections blocked; source write denied; host canary inaccessible; probe container lacks credentials; selected skill listed and repository skill excluded.
+- Safe mode did not load the selected skill. Restricted mode with empty settings sources, managed policy and an empty working directory did. The startup tool set was Read/Grep/Glob/Skill plus the schema tool. Built-in vendor plugins remain visible, so selected-skill permissions and event checks are required. Startup visibility alone does not prove invocation or permission enforcement.
+- A real inference attempt failed with `subscription_limit`. No successful live result is claimed. Still pending: selected skill invocation, explicit CLI outside-path denial, schema output with tools, live usage/steps, observed inference hosts across a successful run, representative review latency, personal Claude compatibility on this candidate, approved deployment/Cloudflare changes, and hosted reviews from **both** clients.
+- The controlled permission smoke bypasses only its deliberate `/etc/passwd` event in the extra observer and requires the CLI's own explicit denial. Production enforcement is unchanged. This test has not yet passed live.
+
+Reproduce from a clean candidate checkout with the commands in [deployment](deployment.md#repository-review-rollout). Do not enable the runner until the pending acceptance evidence has been recorded. No credentials, raw prompts, model replies or private source are included in the evidence artifacts.
+
+The candidate's personal ChatGPT provider subsequently passed a harmless live `COMPATIBILITY_OK` request through `createProviders` with isolated temporary runtime data. No deployed service or provider configuration was changed. Personal Claude and sandbox inference remain pending due to the known subscription limit.
+
+## Review-agent acceptance — October 20, 2026
+
+The previous subscription-limit and live-denial holds are resolved. [Live evidence](review-agents/smoke-live.json) records successful skill invocation, head/base reads, actual CLI outside-read denial, structured output, usage, warnings and cleanup. A 25-file representative review completed in 85.3 seconds with eight tool steps; its path-pattern finding was fixed with regression tests. Personal Claude compatibility passed as well. The sandbox implementation merged in PR #12 after 75 tests and current CI passed. This updates runtime acceptance, not the deployment state of the existing gateway or Slice/Cuse clients.
+
+## Queued PR worker — October 20, 2026
+
+[Workflow run 39453813135, attempt 2](https://github.com/ichen27/subscription-api/actions/runs/39453813135/attempts/2) completed successfully: seven changed files, 37.048 seconds of agent execution, eight tool steps, one source-validated low-severity documentation finding. The commit-specific check was neutral because it contained an advisory finding. [The saved report](review-agents/queued-review-example.md) and [structured provenance](review-agents/queued-review-example.json) preserve the actual result. Its missing artifact-index entry is fixed in this documentation change. The VM and ephemeral registration were removed after the job.
+
+The first attempt failed explicitly at sandbox startup. PR #16 corrected source/skill permissions masked by umask077 and added a proxy-readiness wait. Actual-VM [offline verification](review-agents/worker-offline.json) passes under that private umask; the rerun proves inference and publication. The installed controller digest is `7a700026595a29820c264e061412d543164cf746966394005dd978088bc9d56d`. The final implementation passes 82 application tests and 14 worker tests, syntax checks and actionlint.
+
+The Agent review workflow is manual on main, uses a main-restricted credential environment and a separate 4GiB/2-vCPU disposable worker. It does not require deploying the shared HTTP gateway or migrating the legacy clients. The ordinary Checks workflow remains automatic for PR updates and main pushes.

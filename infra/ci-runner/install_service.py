@@ -26,9 +26,18 @@ def main():
     revision = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
     runtime = root / "runtime" / revision
     runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
-    shutil.copy2(source, runtime / source.name)
-    (runtime / source.name).chmod(0o500)
+    installed = runtime / source.name
+    if installed.exists():
+        if installed.read_bytes() != source.read_bytes():
+            raise SystemExit("Existing versioned runtime differs from source")
+    else:
+        shutil.copy2(source, installed)
+        installed.chmod(0o500)
     label = f"com.ichen27.ci.{config['label']}"
+    # launchd opens stdout/stderr before the user process starts. Removable-volume
+    # paths can fail at that stage; keep these small bootstrap logs in Library.
+    logs = Path.home() / "Library" / "Logs" / label
+    logs.mkdir(parents=True, exist_ok=True, mode=0o700)
     plist_path = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     if plist_path.exists():
@@ -44,10 +53,12 @@ def main():
         },
         "RunAtLoad": True,
         "KeepAlive": True,
+        "ProcessType": "Interactive",
+        "SessionCreate": True,
         "ThrottleInterval": 60,
         "ExitTimeOut": 90,
-        "StandardOutPath": str(root / "service.stdout.log"),
-        "StandardErrorPath": str(root / "service.stderr.log"),
+        "StandardOutPath": str(logs / "stdout.log"),
+        "StandardErrorPath": str(logs / "stderr.log"),
     }
     with plist_path.open("xb") as stream:
         plistlib.dump(definition, stream)

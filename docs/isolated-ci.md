@@ -86,7 +86,9 @@ python3 infra/ci-runner/install_service.py --config /absolute/path/config.json
 The installer copies the supervisor into an immutable-by-convention versioned
 runtime directory and creates a per-user LaunchAgent. It refuses to replace an
 existing service. This starts at user login, not before login after a reboot.
-Logs and `events.jsonl` live in the configured state directory. The host's
+Events and VM diagnostics live in the configured state directory. Small service
+bootstrap logs use `~/Library/Logs/com.ichen27.ci.LABEL/`: launchd can fail opening
+log files on removable volumes before the user process starts. The host's
 existing GitHub CLI authorization must remain available under launchd.
 
 To stop, use `launchctl bootout gui/$(id -u) /path/to/the/printed.plist`.

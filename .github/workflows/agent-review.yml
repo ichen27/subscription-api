@@ -1,0 +1,59 @@
+name: Agent review
+run-name: Review PR ${{ inputs.pr }}
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Open same-repository PR number
+        required: true
+        type: string
+      head:
+        description: Optional expected full head SHA; stale requests fail
+        required: false
+        type: string
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  checks: write
+concurrency:
+  group: agent-review-${{ inputs.pr }}
+  cancel-in-progress: true
+jobs:
+  review:
+    if: github.ref == 'refs/heads/main'
+    environment: agent-review
+    runs-on: [self-hosted, linux, ARM64, subscription-api-agent]
+    timeout-minutes: 12
+    steps:
+      - name: Review exact PR revisions
+        run: |
+          test "$(id -u)" = 2000
+          test ! -e /home/ci/previous-job
+          touch /home/ci/previous-job
+          test -z "$(findmnt -rn -t virtiofs,9p,fuse.sshfs)"
+          if sudo -n true 2>/dev/null || docker info >/dev/null 2>&1; then
+            echo "Runner must not have arbitrary root or Docker access"
+            exit 1
+          fi
+          python3 - <<'PY' | sudo -n /usr/local/bin/pr-agent
+          import json, os
+          print(json.dumps({
+            "pr": os.environ["REVIEW_PR"], "head": os.environ.get("REVIEW_HEAD", ""),
+            "github_token": os.environ["GITHUB_TOKEN"],
+            "subscription_token": os.environ["CLAUDE_CODE_OAUTH_TOKEN"],
+            "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"]
+          }))
+          PY
+          cat /var/lib/pr-agent/output/review.md >> "$GITHUB_STEP_SUMMARY"
+        env:
+          REVIEW_PR: ${{ inputs.pr }}
+          REVIEW_HEAD: ${{ inputs.head }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pr-review-${{ inputs.pr }}-${{ github.run_id }}
+          path: /var/lib/pr-agent/output/
+          if-no-files-found: error
+          retention-days: 7

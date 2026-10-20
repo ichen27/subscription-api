@@ -12,3 +12,5 @@
 | [Launcher manifest](../launcher.json) | Native service deployment | JSON; adapt paths using deployment guide |
 
 Excluded intentionally: subscription credentials, gateway keys, runtime work directories, private request contents, account identifiers, and dependency/cache directories. CI uses fake providers and does not require accounts. Screenshots exclude keys and account identifiers.
+
+- [Queued PR agent](queued-pr-agent.md): setup, operation, credential boundaries, limits and rollback; editable implementation in `src/pr-agent.mjs`, `scripts/pr-agent.mjs`, and `infra/ci-runner/`.

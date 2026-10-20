@@ -1,4 +1,4 @@
-import {mkdtemp,mkdir,writeFile,rm,open,readFile,lstat,readdir} from 'node:fs/promises';
+import {mkdtemp,mkdir,writeFile,rm,open,readFile,lstat,readdir,chmod} from 'node:fs/promises';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {ApiError} from './errors.mjs';
@@ -58,6 +58,21 @@ export async function writeSkills(directory,skills){
     const file=path.join(directory,'skills',skill.id,relative);await mkdir(path.dirname(file),{recursive:true,mode:0o755});await writeFile(file,text,{flag:'wx',mode:0o444});
   }
 }
+export async function prepareReadOnlyTree(directory){
+  // Explicit mkdir/write modes are still masked by the caller's umask. The
+  // dedicated controller uses 077, but container UID 10001 must read these
+  // mounts. The enclosing private job directory remains 0700; credentials are
+  // outside these trees. Read-only bind mounts prevent container writes.
+  const details=await lstat(directory);
+  if(!details.isDirectory()||details.isSymbolicLink())throw new ApiError(503,'sandbox_failed','Invalid source directory.');
+  await chmod(directory,0o755);
+  for(const entry of await readdir(directory,{withFileTypes:true})){
+    const file=path.join(directory,entry.name);
+    if(entry.isDirectory())await prepareReadOnlyTree(file);
+    else if(entry.isFile())await chmod(file,0o444);
+    else throw new ApiError(503,'sandbox_failed','Unsupported source entry.');
+  }
+}
 export function createSandbox(config,{run=runProcess,download=downloadRepository,environment=providerEnvironment,exclusive=operation=>operation(),log=()=>{}}={}){
   const image=config.reviewImage;
   // A local content digest is required: mutable tags never select production execution.
@@ -78,12 +93,19 @@ export function createSandbox(config,{run=runProcess,download=downloadRepository
         const baseDownload=spec.base?await download(spec.repository,spec.base,spec.githubToken,base,{signal:combined}):undefined;
         const warning=injectionWarning(spec.messages)||headDownload?.possiblePromptInjection||baseDownload?.possiblePromptInjection;
         await writeSkills(skills,spec.skills);
+        await prepareReadOnlyTree(repo);
+        if(spec.base)await prepareReadOnlyTree(base);
+        await prepareReadOnlyTree(skills);
         networkCreated=true;
         await command(['network','create','--internal','--opt','com.docker.network.bridge.gateway_mode_ipv4=isolated','--label','subscription-api.review-sandbox=1','--label','subscription-api.review-owner='+owner,network],{signal:combined});
         proxyCreated=true;
         await command(['create',...containerFlags(proxy,network).slice(0,-2),'--label','subscription-api.review-owner='+owner,'--entrypoint','/nodejs/bin/node',image,'/opt/review/egress-proxy.mjs'],{signal:combined});
         await command(['network','connect','bridge',proxy],{signal:combined});
         await command(['start',proxy],{signal:combined});
+        // Docker "start" confirms a process exists, not that its listener is
+        // ready. Cold workers otherwise race the first inference connection.
+        await command(['exec',proxy,'/nodejs/bin/node','-e',
+          "const net=require('node:net');const end=Date.now()+10000;function poll(){const s=net.connect(8080,'127.0.0.1');s.on('connect',()=>{s.destroy();process.exit(0)});s.on('error',()=>{s.destroy();if(Date.now()>=end)process.exit(1);setTimeout(poll,100)});s.setTimeout(500,()=>s.destroy(new Error('timeout')))}poll();"],{signal:combined,timeoutMs:15_000});
         const env=await environment('claude',config);
         if(!env.CLAUDE_CODE_OAUTH_TOKEN)throw new ApiError(503,'automation_login_required','Configure the private Claude subscription credential for sandbox reviews.');
         const args=['run','--rm','-i',...containerFlags(name,network),'--label','subscription-api.review-owner='+owner,

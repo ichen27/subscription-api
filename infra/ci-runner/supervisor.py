@@ -26,8 +26,14 @@ def run(args, *, env=None, input=None, timeout=120):
     try:
         stdout, stderr = process.communicate(input, timeout=timeout)
     except BaseException:
-        os.killpg(process.pid, signal.SIGKILL)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         process.wait()
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream:
+                stream.close()
         raise
     if process.returncode:
         raise RuntimeError(f"{Path(args[0]).name} failed (exit {process.returncode})")
@@ -66,6 +72,9 @@ class Supervisor:
         self.env = dict(os.environ, LIMA_HOME=config["lima_home"])
         self.repo = config["repository"]
         self.state = self.root / "active.json"
+        self.failures_path = self.root / "provisioning-failures.json"
+        self.failures = (json.loads(self.failures_path.read_text())
+                         if self.failures_path.exists() else {})
 
     def event(self, event, **data):
         row = dict(at=dt.datetime.now(dt.timezone.utc).isoformat(), event=event, **data)
@@ -124,9 +133,11 @@ class Supervisor:
 
     def pending(self):
         runs = self.gh("actions/runs?per_page=100")["workflow_runs"]
-        return next(matching_jobs(
+        candidates = matching_jobs(
             runs, lambda run_id: self.gh(f"actions/runs/{run_id}/jobs?per_page=100")["jobs"],
-            self.config["label"]), None)
+            self.config["label"])
+        return next((job for job in candidates
+                     if self.failures.get(str(job["id"]), 0) < 3), None)
 
     def collect_diagnostics(self, name):
         # Preserve as opaque text, never execute or extract guest-controlled paths.
@@ -148,6 +159,7 @@ class Supervisor:
                  "started": dt.datetime.now(dt.timezone.utc).isoformat()}
         self.persist(state)  # Persist before creating anything, for crash recovery.
         self.event("starting", **state)
+        failed = False
         try:
             self.lima("clone", "base", name)
             self.lima("start", "--timeout=5m", name, timeout=330)
@@ -176,8 +188,10 @@ class Supervisor:
                       timeout=self.config.get("job_timeout_seconds", 1200))
             self.event("runner_exited", worker=name)
         except subprocess.TimeoutExpired:
+            failed = True
             self.event("timeout", worker=name)
         except Exception as error:
+            failed = True
             self.event("worker_error", worker=name, error=str(error))
         finally:
             try:
@@ -185,6 +199,15 @@ class Supervisor:
             except (Exception, Stopping):
                 self.event("diagnostics_unavailable", worker=name)
             self.cleanup(state)
+        if failed:
+            key = str(job["id"])
+            self.failures[key] = self.failures.get(key, 0) + 1
+            temporary = self.failures_path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(self.failures))
+            temporary.replace(self.failures_path)
+            if self.failures[key] >= 3:
+                self.event("retry_limit", job_id=job["id"],
+                           action="Repair worker, then cancel and rerun the GitHub job")
         # Query the requested job for evidence; a runner may have received another
         # matching queued job, so this is not asserted to be the executed job.
         result = self.gh(f"actions/jobs/{job['id']}")

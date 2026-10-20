@@ -66,6 +66,10 @@ Matching is by the configured repository and runner label. A lock prevents two
 supervisors sharing the state directory. The persisted active record allows
 cleanup after an interrupted host process; cleanup failure stops the service
 instead of creating more workers.
+After three provisioning/runtime errors for one queued job, the supervisor stops
+retrying that job and records `retry_limit`. Repair the worker, then cancel and
+rerun the GitHub run to obtain a new job ID. Test failures themselves do not
+trigger provisioning retries.
 
 The VM runtime has an external 20-minute deadline, in addition to the workflow's
 15-minute job timeout. A stalled boot has its own deadline. Registration tokens

@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("supervisor", Path(__file__).with_name("supervisor.py"))
@@ -94,6 +96,25 @@ class SupervisorTests(unittest.TestCase):
                  patch.object(controller, "instances", return_value=[]):
                 controller.recover()
             cleanup.assert_called_once_with(state)
+
+    def test_repeated_provisioning_failures_are_not_requeued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = module.Supervisor(self.config(Path(directory)))
+            controller.failures["42"] = 3
+            with patch.object(controller, "gh", side_effect=[
+                {"workflow_runs": [{"id": 1, "status": "queued"}]},
+                {"jobs": [{"id": 42, "status": "queued", "labels": ["subscription-api-ci"]},
+                          {"id": 43, "status": "queued", "labels": ["subscription-api-ci"]}]}]):
+                self.assertEqual(controller.pending()["id"], 43)
+
+    def test_external_deadline_terminates_a_stalled_process(self):
+        with self.assertRaises(subprocess.TimeoutExpired):
+            module.run([sys.executable, "-c", "import time; time.sleep(60)"], timeout=0.1)
+
+    def test_command_errors_do_not_disclose_output(self):
+        with self.assertRaisesRegex(RuntimeError, "failed") as caught:
+            module.run([sys.executable, "-c", "print('private-sentinel'); exit(1)"])
+        self.assertNotIn("private-sentinel", str(caught.exception))
 
 
 if __name__ == "__main__":

@@ -4,10 +4,13 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { ApiError, publicError } from './errors.mjs';
 import { validateRequest } from './providers.mjs';
 import { modelCatalog, defaultModels } from './models.mjs';
+import { skillZip } from './skill-zip.mjs';
 import { createReviewJobs } from './review-jobs.mjs';
 
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/reviews', ['reviews.html', 'text/html; charset=utf-8']],
+  ['/reviews.js', ['reviews.js', 'text/javascript; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/styles.css', ['styles.css', 'text/css; charset=utf-8']],
 ]);
@@ -127,6 +130,37 @@ export function createServer(config, providers, { reviewJobs } = {}) {
         const text = await reviewText(body, controller.signal);
         if (!res.destroyed) json(res, 200, apiResult(body.model, text, 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
         return;
+      }
+      if (url.pathname.startsWith('/api/review/')) {
+        if (!launcherOwner(req, config)) throw new ApiError(401, 'unauthorized', 'Open review management through the owner portal.');
+        if (req.headers.origin && req.headers.origin !== config.origin) throw new ApiError(403, 'origin_rejected', 'Request origin is not allowed.');
+        if (req.method === 'POST' && req.headers.origin !== config.origin) throw new ApiError(403, 'origin_required', 'Open this action from the app.');
+        const store = config.reviewStore;
+        if (!store) throw new ApiError(503, 'review_config_invalid', 'Review configuration is unavailable.');
+        store.ready();
+        if (url.pathname === '/api/review/config' && req.method === 'GET') return json(res, 200, store.view());
+        if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST for review configuration changes.');
+        const body = await readBody(req, 1_650_000);
+        const action = url.pathname.slice('/api/review/'.length);
+        let result;
+        const fields = keys => {
+          if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).some(k => !keys.includes(k))) throw new ApiError(400, 'invalid_review_config', 'Unexpected review configuration fields.');
+        };
+        switch (action) {
+          case 'agents': result = await store.saveAgent(body); break;
+          case 'projects': result = await store.saveProject(body); break;
+          case 'skills': {
+            fields(['id', 'files', 'zip']);
+            if ((body.files !== undefined) === (body.zip !== undefined)) throw new ApiError(400, 'invalid_review_config', 'Provide skill text files or one ZIP archive.');
+            result = await store.saveSkill(body.id, body.zip !== undefined ? skillZip(body.zip) : body.files); break;
+          }
+          case 'agents/delete': fields(['name']); result = await store.deleteAgent(body.name); break;
+          case 'projects/delete': fields(['name']); result = await store.deleteProject(body.name); break;
+          case 'projects/rotate-key': fields(['name']); result = await store.rotateKey(body.name); break;
+          case 'skills/delete': fields(['id']); result = await store.deleteSkill(body.id); break;
+          default: throw new ApiError(404, 'not_found', 'Review management action not found.');
+        }
+        return json(res, 200, result || {ok:true});
       }
       const isBearer = bearer(req, config.apiKey);
       const isOwner = launcherOwner(req, config);

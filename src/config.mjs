@@ -2,6 +2,7 @@ import path from 'node:path';
 import { mkdir, readFile, writeFile, chmod, open } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
+import { loadReviewStore } from './review-config.mjs';
 import { createModelSettings } from './models.mjs';
 
 export async function readReviewKey(file) {
@@ -34,6 +35,7 @@ export async function loadConfig(env = process.env) {
   const parsedOrigin = new URL(origin);
   if (parsedOrigin.origin !== origin) throw new Error('PUBLIC_ORIGIN must be an origin without a trailing slash or path.');
   return {
+    reviewStore: await loadReviewStore(dataDir),
     port, dataDir, workDir, apiKey, origin, host: parsedOrigin.host,
     ownerEmail: env.LAUNCHER_OWNER_EMAIL || '',
     codexBin: env.CODEX_BIN || 'codex', claudeBin: env.CLAUDE_BIN || 'claude',

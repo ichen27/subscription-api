@@ -4,6 +4,7 @@ import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { ApiError, publicError } from './errors.mjs';
 import { validateRequest } from './providers.mjs';
 import { modelCatalog, defaultModels } from './models.mjs';
+import { authenticateProject, allowedAgents, resolveReviewRequest } from './review-agents.mjs';
 import { skillZip } from './skill-zip.mjs';
 import { createReviewJobs } from './review-jobs.mjs';
 
@@ -67,15 +68,17 @@ function apiResult(model, text, id, created) {
   return { id, object: 'chat.completion', created, model, choices: [{ index: 0, message: { role: 'assistant', content: text }, finish_reason: 'stop' }] };
 }
 
-export function createServer(config, providers, { reviewJobs } = {}) {
+export function createServer(config, providers, { reviewJobs, reviewRunner } = {}) {
   const requests = new Set();
   const reviewText = (body, signal) => providers.complete(body, {
     signal, reasoningEffort: 'high',
     timeoutMs: body.json_schema ? FULL_REVIEW_LIMITS.timeoutMs : REVIEW_LIMITS.timeoutMs,
     ...(body.json_schema ? { jsonSchema: body.json_schema } : {}),
   });
-  const jobs = reviewJobs || createReviewJobs(async (body, signal) =>
-    apiResult(body.model, await reviewText(body, signal), 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000)));
+  const jobs = reviewJobs || createReviewJobs(async (body, signal, id) => {
+    if (body.kind === 'agent') return reviewRunner(body.spec, signal, id);
+    return apiResult(body.model, await reviewText(body, signal), 'chatcmpl-' + randomUUID(), Math.floor(Date.now() / 1000));
+  });
   const sweeper = setInterval(() => jobs.sweep(), 15_000);
   sweeper.unref();
   const server = http.createServer(async (req, res) => {
@@ -97,6 +100,27 @@ export function createServer(config, providers, { reviewJobs } = {}) {
         const content = await readFile(new URL('../public/' + asset[0], import.meta.url));
         res.writeHead(200, { 'content-type': asset[1] });
         return res.end(req.method === 'HEAD' ? undefined : content);
+      }
+      if (url.pathname === '/ci/review') {
+        const project = authenticateProject(config.reviewStore, req.headers.authorization);
+        if (req.headers.origin !== undefined) throw new ApiError(403, 'origin_rejected', 'This endpoint is for CI only.');
+        if (req.method === 'GET') {
+          if (url.searchParams.has('agents') && [...url.searchParams.keys()].length === 1) return json(res, 200, {agents:allowedAgents(config.reviewStore, project)});
+          if ([...url.searchParams.keys()].length !== 1 || !url.searchParams.has('job')) throw new ApiError(400, 'invalid_job', 'Provide a job ID or request the agents list.');
+          return json(res, 200, jobs.get(url.searchParams.get('job'), project.keyHash));
+        }
+        if (req.method !== 'POST') throw new ApiError(405, 'method_not_allowed', 'Use POST to submit or GET to check a review job.');
+        if (!/(^|[\s,])respond-async($|[\s,;])/i.test(req.headers.prefer || '')) throw new ApiError(400, 'async_required', 'Send Prefer: respond-async.');
+        const spec = await resolveReviewRequest(config.reviewStore, project, await readBody(req, REVIEW_LIMITS.bodyBytes));
+        // Recheck after asynchronous snapshot reads so a concurrently revoked key cannot enqueue.
+        const current = authenticateProject(config.reviewStore, req.headers.authorization);
+        if (current.keyHash !== project.keyHash) throw new ApiError(401, 'unauthorized', 'A project review credential is required.');
+        if (current.repository !== spec.repository) throw new ApiError(403, 'repository_mismatch', 'The repository must match this project.');
+        if (!current.allowedAgents.includes(spec.agent.name)) throw new ApiError(403, 'agent_not_allowed', 'This project cannot use that agent.');
+        if (!reviewRunner) throw new ApiError(503, 'sandbox_unavailable', 'Repository review execution has not been configured.');
+        const job = jobs.submit({kind:'agent',spec}, {owner:project.keyHash,agent:spec.agent.name});
+        res.setHeader('location', '/ci/review?job=' + job.id);
+        return json(res, 202, job);
       }
       // A separate machine credential grants only this fixed-model text endpoint.
       // Public routing must also enforce the dedicated Cloudflare Access audience.

@@ -41,7 +41,7 @@ jobs:
           print(json.dumps({
             "pr": os.environ["REVIEW_PR"], "head": os.environ.get("REVIEW_HEAD", ""),
             "github_token": os.environ["GITHUB_TOKEN"],
-            "subscription_token": os.environ["CLAUDE_CODE_OAUTH_TOKEN"],
+            "subscription_token": os.environ["CLAUDE_CODE_OAUTH_TOKEN"].strip(),
             "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"]
           }))
           PY

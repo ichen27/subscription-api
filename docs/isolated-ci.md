@@ -108,8 +108,10 @@ providers, so no provider credentials belong in these VMs.
 Before rollout, verify passing and deliberately failing jobs, cancellation on a
 new revision, clean VM replacement, and cleanup after controller termination.
 Switching from hosted x64 to ARM64 must be validated using the real test suite.
-Required-check enforcement depends on the repository plan and rules: retaining
-check names does not enable branch protection.
+Configure branch protection to require the `test` check from GitHub Actions.
+Retaining check names alone does not enable protection. For public repositories,
+require workflow approval for all external fork contributors and inspect their
+changes before approving execution on your worker.
 
 ```sh
 python3 -m unittest discover -s infra/ci-runner -p 'test_*.py'
@@ -127,7 +129,8 @@ attempts prevent equating these minutes with billed savings.
 ## Recovery and future agent workers
 
 Restore the previous `runs-on` label in a PR to return execution to hosted
-workers. That still requires hosted allowance/payment access. Do not silently
+workers. Standard hosted runners are free for public repositories; private
+repositories still require available hosted allowance/payment access. Do not silently
 fall back to paid hosted compute when the local worker is unavailable.
 
 This worker handles CI only. Tool-enabled agents need a separate worker pool,

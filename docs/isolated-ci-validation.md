@@ -10,6 +10,7 @@ GitHub Actions remains the scheduler and check publisher.
 | Intentional failing test | [Run 39437153368](https://github.com/ichen27/subscription-api/actions/runs/39437153368) | Failed with the expected deliberate test error; VM cleaned |
 | Superseded slow revision | [Run 39437298558](https://github.com/ichen27/subscription-api/actions/runs/39437298558) | Canceled after a newer revision; VM cleaned |
 | Supervisor interruption | Startup for [run 39437509335](https://github.com/ichen27/subscription-api/actions/runs/39437509335) | Supervisor killed while its VM was running; the next supervisor removed the orphan before creating another worker |
+| Background service | [Run 39438288183](https://github.com/ichen27/subscription-api/actions/runs/39438288183) | Passed all 59 application tests and 12 worker tests under the installed LaunchAgent |
 | Recovery and fresh execution | [Run 39437509335](https://github.com/ichen27/subscription-api/actions/runs/39437509335) | Passed on a replacement VM; 14 seconds of job execution |
 
 The deliberately failing and slow test files were removed. The permanent
@@ -38,10 +39,19 @@ allowance, historical reruns, storage and invoices were not accessible in this
 inspection. Self-hosted duration does not prove what the same job would cost or
 how long it would take on hosted hardware.
 
-## Limits
+During the rollout the repository became public through a separate user-requested
+change. [Standard hosted runners are free for public repositories](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
+so this repository now validates worker infrastructure rather than demonstrating
+cash savings. Apply the measured approach to a private workload with billed
+minutes before claiming savings; local power and maintenance still have costs.
 
-- Private-repository required-check protection returned a plan restriction.
-  Successful checks are visible; server-enforced merge blocking is not claimed.
+## Limits and repository controls
+
+- After the visibility change, main protection was enabled: PRs and an up-to-date
+  passing `test` check from GitHub Actions are required, including for admins.
+  No separate approving reviewer is required for this solo-maintainer pilot.
+- All external fork contributors require workflow approval before execution.
+  Review their changes before approving access to the isolated worker.
 - No provider credentials or live provider requests are used by this CI.
 - Tool-enabled coding agents are not enabled by this pilot.
 - The LaunchAgent starts after the host user logs in. If the mini is unavailable,

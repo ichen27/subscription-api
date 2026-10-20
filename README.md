@@ -8,7 +8,7 @@ The gateway invokes the official Codex and Claude Code CLIs using their existing
 
 ## Status and limitations
 
-The personal API and legacy CI text reviewer have been deployed and smoke-tested. An optional repository-review portal, project job API and Docker sandbox are implemented on this branch; sandbox live acceptance and client rollout are pending. The sandbox pins Claude Code 2.1.301. See [validation evidence](docs/validation.md) and the [artifact index](docs/artifacts.md).
+The personal API and legacy CI text reviewer have been deployed and smoke-tested. An optional repository-review portal, project job API and Docker sandbox are implemented. Sandbox live acceptance passed; deployment of the new gateway route and its client rollout remain separate. The manual Agent review workflow uses its own disposable worker. The sandbox pins Claude Code 2.1.301. See [validation evidence](docs/validation.md) and the [artifact index](docs/artifacts.md).
 
 - Personal, single-user use. This is not a shared subscription service or a replacement for the full OpenAI/Anthropic APIs.
 - The personal API supports `GET /v1/models` and `POST /v1/chat/completions`, accepting only `model`, `messages`, and optional `stream`.
@@ -23,7 +23,7 @@ The personal API and legacy CI text reviewer have been deployed and smoke-tested
 
 The owner portal at `/reviews` configures project keys, allowed agents and immutable skill revisions. `/ci/review` submits asynchronous jobs against exact head/base commits. The candidate runner reads repository files in an isolated container and returns structured output, execution metadata and optional injection warnings. Clients must still validate completeness and exact-source findings.
 
-This route stays disabled without `REVIEW_IMAGE_DIGEST`. Live skill invocation, permission denial and schema completion are pending after a subscription-limit failure; do not activate it based on the offline smoke alone. See the [review API and acceptance status](docs/review-agents.md), [deployment runbook](docs/deployment.md#repository-review-rollout) and [sanitized evidence](docs/validation.md#review-agent-candidate--october-19-2026).
+This route stays disabled without `REVIEW_IMAGE_DIGEST`. Live skill invocation, permission denial, schema completion and representative review acceptance passed. The gateway route still requires explicit deployment and client provisioning; the manual Actions worker is configured separately. See the [review API and acceptance status](docs/review-agents.md), [deployment runbook](docs/deployment.md#repository-review-rollout) and [sanitized evidence](docs/validation.md#review-agent-acceptance--october-20-2026).
 
 The legacy `/ci/slice/review` remains available for both Slice and CuseSublets, including Cuse's `full-context-v1` mode (2M message characters, 3 MB body, 15-minute inference). Its limits are independent of the personal API and the new 400K-character/640 KB repository-review route. Keep it until **both clients** complete migration.
 

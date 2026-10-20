@@ -57,6 +57,8 @@ The dashboard saves defaults in `APP_DATA_DIR/models.json` (owner-only, atomic r
 
 ## Repository-review rollout
 
+This section covers the shared HTTP gateway and its Slice/Cuse clients. The standalone [queued PR worker](queued-pr-agent.md) does not require these gateway deployment or Cloudflare steps; it uses a separate protected workflow environment and disposable VM.
+
 **Current state:** implementation, offline isolation and live sandbox acceptance are verified. The existing service and legacy client routes have not been changed. Gateway activation and both client migrations remain separate deployment work. Keep `REVIEW_IMAGE_DIGEST` unset in the live gateway until its deployment is performed and verified. `/health` confirms the HTTP process, not sandbox readiness.
 
 1. On an isolated checkout, run `npm ci`, `npm test`, `npm run check`, then `npm run sandbox:build`. The service user needs a running Docker daemon and permission to create containers and isolated bridge networks. Use the digest printed by the build; the runtime requires a local `sha256:` image ID, not a mutable tag. The image has a pinned CLI and base images. No registry push is required.

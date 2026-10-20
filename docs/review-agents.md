@@ -1,6 +1,6 @@
 # Review agents
 
-Implementation is staged. The owner portal at `/reviews` manages configuration; the new CI route and container runner are not yet activated. Existing personal and CI text routes are unchanged.
+Implementation is staged. The owner portal at `/reviews` manages configuration; the new gateway CI route is not yet activated. The separate [queued PR worker](queued-pr-agent.md) uses the validated container runtime directly. Existing personal and CI text routes are unchanged.
 
 The private store lives under `APP_DATA_DIR/review/`. `config.json` contains versioned agents, projects and skill references. Project keys are generated once and only their SHA-256 hashes are retained. Public configuration views omit hashes and secret references. `secrets.json` contains versioned GitHub tokens with mode 0600. Tokens are never returned by the portal. Changing a project's repository clears its token unless a replacement is explicitly supplied.
 

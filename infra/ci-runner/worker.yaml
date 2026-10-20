@@ -5,6 +5,7 @@ cpus: 2
 memory: 2GiB
 disk: 12GiB
 plain: true
+propagateProxyEnv: false
 mounts: []
 ssh:
   loadDotSSHPubKeys: false

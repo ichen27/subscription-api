@@ -75,6 +75,26 @@ class SupervisorTests(unittest.TestCase):
                 controller.execute({"id": 42})
             cleanup.assert_called_once()
 
+    def test_interruption_during_boot_still_cleans_up(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = module.Supervisor(self.config(Path(directory)))
+            with patch.object(controller, "lima", side_effect=[None, module.Stopping()]), \
+                 patch.object(controller, "collect_diagnostics"), \
+                 patch.object(controller, "cleanup") as cleanup:
+                with self.assertRaises(module.Stopping):
+                    controller.execute({"id": 42})
+            cleanup.assert_called_once()
+
+    def test_recovery_cleans_record_before_scanning_orphans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            controller = module.Supervisor(self.config(Path(directory)))
+            state = {"name": "job-123456abcdef"}
+            controller.persist(state)
+            with patch.object(controller, "cleanup") as cleanup, \
+                 patch.object(controller, "instances", return_value=[]):
+                controller.recover()
+            cleanup.assert_called_once_with(state)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,57 @@
+# Clean, unregistered base image. Never put repository/provider credentials here.
+vmType: vz
+arch: aarch64
+cpus: 2
+memory: 2GiB
+disk: 12GiB
+plain: true
+propagateProxyEnv: false
+mounts: []
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+containerd:
+  system: false
+  user: false
+images:
+  - location: https://cloud-images.ubuntu.com/releases/noble/release-20260926/ubuntu-24.04-server-cloudimg-arm64.img
+    arch: aarch64
+    digest: sha256:1d6bffe64b848468ac97f821d369a4846d983de1800ccf6b5ec8853e85cefc55
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      test ! -f /opt/ci-base-ready || exit 0
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y --no-install-recommends ca-certificates curl git nftables libicu74 libssl3 libkrb5-3 zlib1g
+      useradd --create-home --uid 2000 --shell /bin/bash ci
+      passwd --lock ci
+      install -d -o ci -g ci /home/ci/runner
+      curl --fail --location --retry 3 \
+        https://github.com/actions/runner/releases/download/v2.338.0/actions-runner-linux-arm64-2.338.0.tar.gz \
+        -o /tmp/runner.tar.gz
+      echo '628b4a7258487b80c1d3c221095a7ded349f5ae0175fd3dfab708d07428f041b  /tmp/runner.tar.gz' | sha256sum -c -
+      tar -xzf /tmp/runner.tar.gz -C /home/ci/runner
+      chown -R ci:ci /home/ci/runner
+      rm /tmp/runner.tar.gz
+      # Jobs need loopback for HTTP tests. Deny host, LAN, Tailscale and link-local
+      # destinations for the unprivileged CI account, including mapped IPv6.
+      # Lima's DNS gateway is allowed only for DNS. No guest sudo for ci.
+      cat >/etc/nftables.conf <<'NFT'
+      flush ruleset
+      table inet ci_boundary {
+        chain output {
+          type filter hook output priority 0; policy accept;
+          meta skuid 2000 ip daddr 127.0.0.0/8 accept
+          meta skuid 2000 ip6 daddr ::1 accept
+          meta skuid 2000 ip daddr 192.168.5.3 udp dport 53 accept
+          meta skuid 2000 ip daddr 192.168.5.3 tcp dport 53 accept
+          meta skuid 2000 ip daddr { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } counter reject
+          meta skuid 2000 meta nfproto ipv6 counter reject
+        }
+      }
+      NFT
+      systemctl enable --now nftables
+      touch /opt/ci-base-ready

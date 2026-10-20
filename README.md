@@ -97,6 +97,11 @@ General API requests use the selected Codex model’s default reasoning effort. 
 
 ## GitHub Actions
 
+Repository test CI uses disposable Linux ARM64 workers, while GitHub Actions
+retains PR scheduling and check results. See [worker setup, validation, usage
+reporting, and rollback](docs/isolated-ci.md). These test workers have no provider
+credentials and are separate from the running gateway service.
+
 A separate, disabled-by-default `POST /ci/slice/review` endpoint supports Slice's protected reviewer. Its default mode accepts only `claude/claude-opus-5-5`, non-streaming text requests and a dedicated review key; the key cannot access the personal API or dashboard settings. The server requests High reasoning, disables automatic model switching on flagged requests, and retains tool isolation. Claude Code 2.1.280 or newer is required for Opus 5.5; this integration was verified with 2.1.301. See [the scoped connection guide](docs/slice-ci.md). This code alone does not configure Cloudflare or activate GitHub calls.
 
 CuseSublets opts into a full-context mode on the same authenticated endpoint using `X-Review-Mode: full-context-v1`, model `claude/claude-opus-5-5[1m]`, and an additional `json_schema` object. This mode accepts up to 2,000,000 message characters / 3,000,000 request bytes and allows 15 minutes of inference. It requires bounded, reference-free object JSON Schema (16 KB maximum), passes it to Claude Code's `--json-schema`, and returns only the validated `structured_output`. Missing structured output fails even when plain text looks valid. Existing Slice requests retain their original 400,000-character / 640 KB / five-minute limits. The personal API still rejects schema parameters. Use asynchronous jobs and keep polling at intervals below two minutes. Explicit extended context must be supported by the signed-in account; failure does not switch models or authentication methods.

@@ -57,7 +57,7 @@ The dashboard saves defaults in `APP_DATA_DIR/models.json` (owner-only, atomic r
 
 ## Repository-review rollout
 
-**Current state:** implementation and offline Docker checks are available; live acceptance is pending. The existing service and legacy client routes have not been changed. Keep `REVIEW_IMAGE_DIGEST` unset until the checks below pass. `/health` confirms the HTTP process, not sandbox readiness.
+**Current state:** implementation, offline isolation and live sandbox acceptance are verified. The existing service and legacy client routes have not been changed. Gateway activation and both client migrations remain separate deployment work. Keep `REVIEW_IMAGE_DIGEST` unset in the live gateway until its deployment is performed and verified. `/health` confirms the HTTP process, not sandbox readiness.
 
 1. On an isolated checkout, run `npm ci`, `npm test`, `npm run check`, then `npm run sandbox:build`. The service user needs a running Docker daemon and permission to create containers and isolated bridge networks. Use the digest printed by the build; the runtime requires a local `sha256:` image ID, not a mutable tag. The image has a pinned CLI and base images. No registry push is required.
 2. Run `npm run sandbox:smoke -- --offline`. Then supply the private `CLAUDE_OAUTH_TOKEN_FILE` and run `npm run sandbox:smoke`. Keep full CLI output private. Save only the sanitized final evidence. The live script must pass explicit skill invocation, head/base reads, CLI path denial, structured output, warnings and usage. Also verify harmless personal requests through each available provider and a representative repository review. A rate-limit failure leaves acceptance pending.

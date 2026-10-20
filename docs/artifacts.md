@@ -4,10 +4,11 @@
 | --- | --- | --- |
 | [Dashboard](dashboard.png) | Verified deployed UI with model selection | PNG; open in any image viewer |
 | [Validation](validation.md) | Automated and live verification results | Markdown |
+| [Isolated CI guide](isolated-ci.md), [validation](isolated-ci-validation.md), and [worker sources](../infra/ci-runner/) | Reproduce disposable workers, inspect rollout evidence, and report observed Actions usage | Markdown, YAML, Python; macOS ARM64 host |
 | [CI guide](github-actions.md) and [request step](../examples/github-actions-step.yml) | CI setup requirements and copyable request step; network setup pending | Markdown / YAML |
 | [Request](../examples/request.json) | Harmless example input | JSON; send to `/v1/chat/completions` |
 | [Response](../examples/response.json) | Representative output schema | JSON; sample, not a promised model response |
-| [Review API/runbook](review-agents.md) | Project keys, job contract, limits and pending acceptance | Markdown |
+| [Review API/runbook](review-agents.md) | Project keys, job contract, limits and acceptance evidence | Markdown |
 | [Review request](../examples/review-request.json) | Public fixture request with schema; requires a matching configured project | JSON |
 | [Agents portal](review-agents/portal-agents.png) and [mobile projects](review-agents/portal-projects-mobile.png) | Synthetic portal demonstrations | PNG |
 | [Offline sandbox evidence](review-agents/smoke-offline.json) | Docker isolation and CLI startup checks; no completed inference | JSON; check `mode` before interpreting `completed` |

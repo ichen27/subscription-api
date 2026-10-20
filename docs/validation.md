@@ -51,7 +51,7 @@ No mobile-device browser test was performed. The CSS includes narrow-screen layo
 - Inspected the launcher auth implementation: it requires a signed JWT with the configured owner email. A Cloudflare service token alone is insufficient. Updated the deployment and CI guidance accordingly; no launcher source or Access policy changes were made.
 - No target GitHub repository, CI job purpose, machine network credentials, or live GitHub-to-gateway call is configured for this integration. The YAML artifact is explicitly a step fragment with a network prerequisite.
 
-## Review-agent candidate — October 19, 2026
+## Review-agent candidate — historical October 19, 2026 evidence
 
 This evidence concerns the unactivated review-agent branch, not the deployed gateway. The historical checks above do not prove the new sandbox passes live acceptance.
 
@@ -65,3 +65,7 @@ This evidence concerns the unactivated review-agent branch, not the deployed gat
 Reproduce from a clean candidate checkout with the commands in [deployment](deployment.md#repository-review-rollout). Do not enable the runner until the pending acceptance evidence has been recorded. No credentials, raw prompts, model replies or private source are included in the evidence artifacts.
 
 The candidate's personal ChatGPT provider subsequently passed a harmless live `COMPATIBILITY_OK` request through `createProviders` with isolated temporary runtime data. No deployed service or provider configuration was changed. Personal Claude and sandbox inference remain pending due to the known subscription limit.
+
+## Review-agent acceptance — October 20, 2026
+
+The previous subscription-limit and live-denial holds are resolved. [Live evidence](review-agents/smoke-live.json) records successful skill invocation, head/base reads, actual CLI outside-read denial, structured output, usage, warnings and cleanup. A 25-file representative review completed in 85.3 seconds with eight tool steps; its path-pattern finding was fixed with regression tests. Personal Claude compatibility passed as well. The sandbox implementation merged in PR #12 after 75 tests and current CI passed. This updates runtime acceptance, not the deployment state of the existing gateway or Slice/Cuse clients.

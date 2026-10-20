@@ -1,4 +1,5 @@
 import test from 'node:test';
-test('pilot proves failing tests reach GitHub', () => {
-  throw new Error('Intentional CI pilot failure; removed after verification');
+import { setTimeout } from 'node:timers/promises';
+test('pilot holds a job so a newer revision can cancel it', async () => {
+  await setTimeout(180_000);
 });

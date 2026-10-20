@@ -113,6 +113,10 @@ VM/runner removal. Rebuild and verify a clean base when updating the image,
 Node or controller. Changing the repository checkout alone does not update the
 installed controller. Record the new controller digest.
 
+## Verified rollout
+
+A [real queued review](validation.md#queued-pr-worker--october-20-2026) completed, published a source-validated finding and saved both report formats. The VM and runner registration were removed afterward. The example report is retained in this repository so its evidence remains available after the workflow artifact expires.
+
 ## Validation and rollback
 
 ```sh

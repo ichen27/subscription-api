@@ -11,6 +11,9 @@
 | [Review API/runbook](review-agents.md) | Project keys, job contract, limits and acceptance evidence | Markdown |
 | [Review request](../examples/review-request.json) | Public fixture request with schema; requires a matching configured project | JSON |
 | [Agents portal](review-agents/portal-agents.png) and [mobile projects](review-agents/portal-projects-mobile.png) | Synthetic portal demonstrations | PNG |
+| [Live sandbox evidence](review-agents/smoke-live.json) | Successful inference, skill invocation and explicit permission denial | JSON; mode `live` |
+| [Queued review example](review-agents/queued-review-example.md) and [structured result](review-agents/queued-review-example.json) | Actual workflow result before its documentation finding was resolved | Markdown / JSON |
+| [Agent VM isolation evidence](review-agents/worker-offline.json) | Actual worker network, skill and read-only checks under private controller permissions | JSON; offline, not inference |
 | [Offline sandbox evidence](review-agents/smoke-offline.json) | Docker isolation and CLI startup checks; no completed inference | JSON; check `mode` before interpreting `completed` |
 | [Sandbox sources](../sandbox/) and [smoke script](../scripts/sandbox-smoke.mjs) | Editable image/policy and acceptance probes | Dockerfile / JSON / JavaScript |
 | [Source](../src/) and [UI](../public/) | Editable implementation | JavaScript, HTML, CSS; Node 22+ |

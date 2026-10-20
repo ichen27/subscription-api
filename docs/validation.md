@@ -69,3 +69,11 @@ The candidate's personal ChatGPT provider subsequently passed a harmless live `C
 ## Review-agent acceptance — October 20, 2026
 
 The previous subscription-limit and live-denial holds are resolved. [Live evidence](review-agents/smoke-live.json) records successful skill invocation, head/base reads, actual CLI outside-read denial, structured output, usage, warnings and cleanup. A 25-file representative review completed in 85.3 seconds with eight tool steps; its path-pattern finding was fixed with regression tests. Personal Claude compatibility passed as well. The sandbox implementation merged in PR #12 after 75 tests and current CI passed. This updates runtime acceptance, not the deployment state of the existing gateway or Slice/Cuse clients.
+
+## Queued PR worker — October 20, 2026
+
+[Workflow run 39453813135, attempt 2](https://github.com/ichen27/subscription-api/actions/runs/39453813135/attempts/2) completed successfully: seven changed files, 37.048 seconds of agent execution, eight tool steps, one source-validated low-severity documentation finding. The commit-specific check was neutral because it contained an advisory finding. [The saved report](review-agents/queued-review-example.md) and [structured provenance](review-agents/queued-review-example.json) preserve the actual result. Its missing artifact-index entry is fixed in this documentation change. The VM and ephemeral registration were removed after the job.
+
+The first attempt failed explicitly at sandbox startup. PR #16 corrected source/skill permissions masked by umask077 and added a proxy-readiness wait. Actual-VM [offline verification](review-agents/worker-offline.json) passes under that private umask; the rerun proves inference and publication. The installed controller digest is `7a700026595a29820c264e061412d543164cf746966394005dd978088bc9d56d`. The final implementation passes 82 application tests and 14 worker tests, syntax checks and actionlint.
+
+The Agent review workflow is manual on main, uses a main-restricted credential environment and a separate 4GiB/2-vCPU disposable worker. It does not require deploying the shared HTTP gateway or migrating the legacy clients. The ordinary Checks workflow remains automatic for PR updates and main pushes.

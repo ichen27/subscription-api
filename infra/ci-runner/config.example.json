@@ -1,0 +1,7 @@
+{
+  "repository": "OWNER/REPOSITORY",
+  "label": "subscription-api-ci",
+  "state_dir": "/absolute/path/to/private/runner-state",
+  "lima_home": "/absolute/path/to/dedicated/lima-home",
+  "job_timeout_seconds": 1200
+}

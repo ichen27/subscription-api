@@ -133,7 +133,8 @@ workers. Standard hosted runners are free for public repositories; private
 repositories still require available hosted allowance/payment access. Do not silently
 fall back to paid hosted compute when the local worker is unavailable.
 
-This worker handles CI only. Tool-enabled agents need a separate worker pool,
-credential boundary, runtime and usage budgets. Start those jobs manually;
+This worker handles CI only. The [queued PR agent](queued-pr-agent.md) uses a
+separate worker pool, protected credential boundary and bounded runtime. Start
+those review jobs manually;
 changes made by an agent must receive fresh checks. Do not enable tools on the
 existing text-only subscription gateway as a shortcut to agent execution.

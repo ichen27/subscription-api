@@ -34,7 +34,10 @@ async function networkChecks(args){
     })().catch(()=>process.exit(1));`;
   const mounts=[];for(let i=0;i<args.length;i++)if(args[i]==='--mount')mounts.push('--mount',args[++i]);
   const result=await runProcess(docker,['run','--rm',...containerFlags(name,network),...mounts,'--entrypoint','/nodejs/bin/node',image,'-e',program],{env:subscriptionEnvironment(),timeoutMs:20_000});
+  manifest.networkProbeExit=result.code;
+  if(result.code!==0)manifest.networkProbeDiagnostic=result.stderr.slice(0,2000);
   assert.equal(result.code,0,'Network probe failed');const checks=JSON.parse(result.stdout);
+  manifest.network=checks;
   assert.match(checks.example,/403/);assert.match(checks.github,/403/);assert.match(checks.inference,/200/);
   for(const field of ['direct','host','dns'])assert.equal(checks[field],'blocked',field+' must be blocked');
   for(const field of ['noHostCanary','noCredentials','readOnly'])assert.equal(checks[field],true,field);

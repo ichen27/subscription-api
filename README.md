@@ -130,3 +130,7 @@ Inherited environment variables containing API keys, alternative provider URLs, 
 Run `npm ci`, `npm test`, and `npm run check` before proposing changes. CI runs without provider credentials and uses deterministic provider substitutes; live subscription tests are performed separately. Add regression tests for changed auth, billing-path selection, request validation, and subprocess lifecycle behavior.
 
 Use focused branches and pull requests. Report bugs with the CLI versions, HTTP error code, and a harmless reproduction. Exclude tokens, private prompts, account identifiers, and unredacted CLI output. This repository is private and requires authorized GitHub access; [LICENSE](LICENSE) reserves redistribution rights. Provider software and documentation retain their own licenses and terms.
+
+## Queued PR reviews
+
+Use the manual **Agent review** workflow for a bounded read-only review on a separate disposable worker. See [operation, setup and limits](docs/queued-pr-agent.md). Ordinary tests and the live gateway are independent.
